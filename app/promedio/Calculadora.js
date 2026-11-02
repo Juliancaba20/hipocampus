@@ -71,14 +71,13 @@ export default function Calculadora() {
     actualizar((c) => ({ ...c, materias: { ...c.materias, [id]: fn(leerEntrada(c.materias[id])) } }));
   }
   const ponerNota = (id, i, texto) =>
-    cambiarMateria(id, (e) => ({ ...e, notas: e.notas.map((t, k) => (k === i ? texto.replace(/[^\d.,]/g, '') : t)) }));
+    cambiarMateria(id, (e) => ({ ...e, notas: e.notas.map((t, k) => (k === i ? texto.replace(/\D/g, '') : t)) }));
   const agregarNota = (id) => cambiarMateria(id, (e) => ({ ...e, notas: [...e.notas, ''] }));
   const quitarNota = (id, i) =>
     cambiarMateria(id, (e) => {
       const notas = e.notas.filter((_, k) => k !== i);
       return { ...e, notas: notas.length ? notas : [''] };
     });
-  const ponerPromocionada = (id, valor) => cambiarMateria(id, (e) => ({ ...e, prom: valor }));
 
   function agregarPropia(ev) {
     ev.preventDefault();
@@ -106,17 +105,11 @@ export default function Calculadora() {
   // Se llama como función (no como componente) para que los campos no se vuelvan a crear en cada tecla y conserven el foco.
   function filaMateria(m, propia) {
     const e = leerEntrada(materiasGuardadas[m.id]);
-    const visibles = e.prom ? e.notas.slice(0, 1) : e.notas;
-    const hayError = visibles.some((t) => leerNota(t).error);
+    const hayError = e.notas.some((t) => leerNota(t).error);
     return (
       <li className="pm-materia" key={m.id}>
         <div className="pm-info">
           <p className="pm-nombre">{m.nombre}</p>
-          <label className="pm-prom">
-            <input type="checkbox" checked={e.prom} onChange={(ev) => ponerPromocionada(m.id, ev.target.checked)} />
-            <span>Promocionada</span>
-          </label>
-          {e.prom && <small className="pm-ayuda">Escriba el promedio de los parciales: se toma como nota final.</small>}
           {propia && (
             <button type="button" className="pm-mini pm-quitar" onClick={() => quitarPropia(m.id)}>
               Quitar esta materia
@@ -124,7 +117,7 @@ export default function Calculadora() {
           )}
         </div>
         <div className="pm-notas" role="group" aria-label={`Notas de ${m.nombre}`}>
-          {visibles.map((t, i) => {
+          {e.notas.map((t, i) => {
             const r = leerNota(t);
             const clase = 'pm-nota' + (r.n !== undefined && r.n < NOTA_APROBACION ? ' pm-aplazo' : '');
             return (
@@ -132,16 +125,16 @@ export default function Calculadora() {
                 <input
                   className={clase}
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   autoComplete="off"
-                  maxLength={5}
+                  maxLength={2}
                   value={t}
-                  placeholder={e.prom ? 'Promedio' : i === 0 ? 'Nota' : `Nota ${i + 1}`}
-                  aria-label={e.prom ? `${m.nombre}: promedio de los parciales` : `${m.nombre}: nota ${i + 1}`}
+                  placeholder={i === 0 ? 'Nota' : `Nota ${i + 1}`}
+                  aria-label={`${m.nombre}: nota ${i + 1}`}
                   aria-invalid={r.error ? 'true' : undefined}
                   onChange={(ev) => ponerNota(m.id, i, ev.target.value)}
                 />
-                {!e.prom && i > 0 && (
+                {i > 0 && (
                   <button type="button" className="pm-x" aria-label={`Quitar la nota ${i + 1} de ${m.nombre}`} onClick={() => quitarNota(m.id, i)}>
                     ×
                   </button>
@@ -149,15 +142,13 @@ export default function Calculadora() {
               </span>
             );
           })}
-          {!e.prom && (
-            <button type="button" className="pm-mini" onClick={() => agregarNota(m.id)}>
-              + Otra nota
-            </button>
-          )}
+          <button type="button" className="pm-mini" onClick={() => agregarNota(m.id)}>
+            + Otra nota
+          </button>
         </div>
         {hayError && (
           <small className="pm-error" role="alert">
-            Escriba un número del 0 al 10 (puede usar coma). Esa nota no se tiene en cuenta hasta corregirla.
+            Escriba la nota final como un número entero del 0 al 10. Esa nota no se tiene en cuenta hasta corregirla.
           </small>
         )}
       </li>

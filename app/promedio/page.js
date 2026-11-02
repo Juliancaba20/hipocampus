@@ -27,7 +27,8 @@ export default function Promedio() {
             <li>Se promedian <b>todas las notas cargadas</b>, aprobadas o no: una nota menor a 4 también cuenta.</li>
             <li>Una materia sin notas se considera <b>no finalizada</b> y no entra en el promedio.</li>
             <li>Si rindió una materia más de una vez, cargue cada nota con «+ Otra nota».</li>
-            <li>En una materia <b>promocionada</b>, escriba el promedio de los parciales: es su nota final.</li>
+            <li>El promedio general se redondea a dos decimales; el de cada año o ciclo se muestra <b>sin redondear hacia arriba</b>.</li>
+            <li>En cada materia escriba <b>la nota final que le quedó</b>, un número entero del 0 al 10. Si promocionó, cargue esa nota directamente.</li>
             <li>El <b>CBC</b> y el <b>curso de inglés</b> vienen desactivados: se suman solo si usted lo elige.</li>
           </ul>
         </section>
