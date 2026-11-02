@@ -7,6 +7,7 @@ Hipocampus es un sitio gratuito y sin fines de lucro con herramientas para estud
 - `/metodos/<método>` página de cada método con la información completa (se genera sola desde `content/metodos/`)
 - `/teclado` página del Teclado Científico, con las descargas para Windows, Mac y Linux
 - `/notas` página de Anotomía, la app de notas: muestra todas las versiones a la vista, como el Teclado (Windows .exe, Mac .dmg, Linux .AppImage, Android .apk y la versión online) con la de su dispositivo resaltada; la app está en `/notas/app/index.html`
+- `/promedio` calculadora de promedio de la carrera (por ahora Medicina UBA; las carreras se agregan en `app/promedio/carreras.js`)
 - `/contacto` formulario para informar errores o enviar sugerencias (llega por mail)
 
 ## Estructura del repositorio
@@ -15,7 +16,7 @@ Todo el proyecto vive en este único repositorio:
 
 | Carpeta | Contenido |
 |---------|-----------|
-| `app/` | El sitio (Next.js, App Router): portada, `metodos/`, `teclado/`, `notas/`, `contacto/` y `api/contacto/` |
+| `app/` | El sitio (Next.js, App Router): portada, `metodos/`, `teclado/`, `notas/`, `promedio/`, `contacto/` y `api/contacto/` |
 | `apps/notas/` | Código de Anotomía (Vite + React) y, en `apps/notas/src-tauri/`, los programas de Windows, Mac, Linux y Android (Tauri) |
 | `public/notas/app/` | Anotomía ya compilada (se genera sola en cada `npm run build`; no se sube) |
 | `scripts/` | `publicar-notas.mjs`, que compila Anotomía y la copia a `public/` |
@@ -63,6 +64,16 @@ Para corregir o agregar un método, edite o cree un archivo en esa carpeta y abr
 ## Teclado Científico
 
 La página está en `app/teclado/`: `page.js` (contenido), `Descargas.js` (enlaces de descarga y número de versión) y `config.js` (repositorio y nombres de los archivos). La página enlaza siempre a la última versión publicada en *Releases*, sea cual sea el nombre de su etiqueta. El programa está en `apps/teclado/`; allí se explica cómo publicar una versión nueva (`apps/teclado/LEEME.md`).
+
+## Calculadora de promedio
+
+La página está en `app/promedio/`: `page.js` (contenido y explicación), `Calculadora.js` (pantalla, componente de cliente), `calculo.js` (las reglas del cálculo, sin interfaz) y `carreras.js` (las carreras y sus materias). Usa el tema verde (`data-tema="promedio"` en `app/globals.css`; los estilos propios llevan el prefijo `pm-`).
+
+Reglas: se promedian todas las notas cargadas, aprobadas o no; una materia sin notas no cuenta; en una materia promocionada cuenta solo el promedio de los parciales; el CBC y el curso de inglés son bloques opcionales que **siempre arrancan desactivados** (ese interruptor no se guarda). Las notas se guardan solo en el navegador de cada persona (`localStorage`, clave `hipocampus-promedio-v1`), sin servidor.
+
+**Agregar una carrera:** sumar un objeto a `CARRERAS` en `app/promedio/carreras.js` con el mismo formato que Medicina (UBA): `id`, `etiqueta`, `plan`, `fuente` y una lista de `bloques` con sus `materias`. Un bloque con `opcional` se activa a pedido de la persona. Los `id` de las materias no deben cambiarse una vez publicados, porque con ellos se guardan las notas. El selector de carrera y el aviso «habrá más carreras próximamente» se arman solos.
+
+El plan de Medicina (UBA) se cargó según el Plan de Estudios 2024 publicado por la Facultad, que en su sitio figura como imagen, y otras fuentes; conviene revisarlo contra el plan vigente.
 
 ## Anotomía (app de notas)
 

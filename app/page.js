@@ -28,6 +28,12 @@ export default function Inicio() {
           <p>La app definitiva para tomar notas en clase y hacer resúmenes.</p>
           <span className="go">Conocer Anotomía</span>
         </Link>
+        <Link className="card tool" data-tool="promedio" style={{ '--i': 3 }} href="/promedio">
+          <span className="ico" aria-hidden="true">∑</span>
+          <h2>Calculadora de promedio</h2>
+          <p>Cargue las notas de sus materias y calcule el promedio de su carrera. Por ahora, Medicina (UBA); habrá más carreras próximamente.</p>
+          <span className="go">Calcular mi promedio</span>
+        </Link>
       </div>
     </main>
   );
