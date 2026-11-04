@@ -1,19 +1,25 @@
 // Service worker de Anotomía (Etapa 13). Se genera en la compilación (sw/generar.mjs): las dos constantes
 // siguientes se completan con la huella del contenido y la lista de archivos de la app.
 // No usa nada fuera de su propia carpeta.
-const VERSION = '2fd7968169b7';
+const VERSION = '46349c01cc40';
 const CACHE = 'anotomia-' + VERSION;
 const ARCHIVOS = [
-  "./assets/figtree-latin-400-italic-BSc-2xHp.woff2",
-  "./assets/figtree-latin-400-normal-g7Dtegnw.woff2",
-  "./assets/figtree-latin-500-normal-BWnGEVsr.woff2",
-  "./assets/figtree-latin-600-normal-Cv_xCTDl.woff2",
-  "./assets/figtree-latin-700-italic-Bk3jHuty.woff2",
-  "./assets/figtree-latin-700-normal-th6qEP7c.woff2",
-  "./assets/index-B4Kd2qrF.css",
-  "./assets/index-uembvrct.js",
-  "./assets/newsreader-latin-500-normal-B66TYsaK.woff2",
-  "./assets/newsreader-latin-600-normal-30OJ_TG_.woff2",
+  "./assets/bricolage-grotesque-latin-ext-wght-normal-CcLUaPy7.woff2",
+  "./assets/bricolage-grotesque-latin-wght-normal-DLoelf7F.woff2",
+  "./assets/core-CwBWH9_g.js",
+  "./assets/dist-js-BH310aLH.js",
+  "./assets/dist-js-Bq4C-2Yy.js",
+  "./assets/dist-js-DE9Ux1YK.js",
+  "./assets/dist-js-MUY8iCit.js",
+  "./assets/event-D6iU7675.js",
+  "./assets/index-B7dDT4S4.css",
+  "./assets/index-xLrJOTFR.js",
+  "./assets/source-serif-4-greek-wght-italic-CUp-f2uw.woff2",
+  "./assets/source-serif-4-greek-wght-normal-BpXpdlRW.woff2",
+  "./assets/source-serif-4-latin-ext-wght-italic-B_cmBfNX.woff2",
+  "./assets/source-serif-4-latin-ext-wght-normal-BVZ5su8S.woff2",
+  "./assets/source-serif-4-latin-wght-italic-B-rCj6ir.woff2",
+  "./assets/source-serif-4-latin-wght-normal-DMe4EKeb.woff2",
   "./favicon.svg",
   "./iconos/apple-touch-icon.png",
   "./iconos/icono-192.png",

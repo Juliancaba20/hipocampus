@@ -5,6 +5,7 @@ import './globals.css';
 import Nav from './Nav';
 import Link from 'next/link';
 import { GoogleTagManager } from '@next/third-parties/google';
+import { Analytics } from '@vercel/analytics/next';
 
 export const metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://hipocampus.vercel.app'),
@@ -35,6 +36,7 @@ export default function RootLayout({ children }) {
           <div id="contenido">{children}</div>
           <footer>Hecho por un estudiante de medicina, para estudiantes. ¿Encontró un error o tiene una sugerencia? <Link href="/contacto">Infórmelo aquí</Link>.</footer>
         </div>
+        <Analytics />
       </body>
     </html>
   );
