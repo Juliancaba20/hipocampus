@@ -12,7 +12,7 @@ export const metadata = {
     description: 'Un teclado flotante para escribir letras griegas y símbolos en sus resúmenes: clic en el símbolo y se escribe donde esté el cursor. Disponible para Windows, Mac y Linux.',
     locale: 'es_AR',
     type: 'website',
-    images: [{ url: '/teclado/vista-previa.png', width: 1200, height: 630, alt: 'Teclado Científico: letras α β γ Δ μ y una vista del teclado flotante' }],
+    images: [{ url: '/teclado/vista-previa.png', width: 1200, height: 630, alt: 'Teclado Científico: letras α β γ Δ μ y una vista del teclado flotante con sus pestañas, el botón de configuración y la fila de símbolos recientes' }],
   },
   twitter: { card: 'summary_large_image' },
 };
@@ -29,11 +29,22 @@ export default function Teclado() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/teclado/captura-teclado.gif"
-          width="627"
-          height="230"
-          alt="Vista del teclado: una barra con las pestañas α, Α, ± y H₂, una fila de símbolos usados recientemente y la cuadrícula de letras. Al pasar el mouse sobre un símbolo, la barra muestra su nombre."
+          width="629"
+          height="306"
+          alt="Vista del teclado en varios colores: una barra con las pestañas α, Α, ±, H₂ y ∫, el botón de configuración ⚙, una fila de símbolos usados recientemente y la cuadrícula de letras y símbolos. Al pasar el mouse sobre un símbolo, la barra muestra su nombre."
         />
-        <figcaption className="mut">Así se ve. Captura en Linux; en Windows y Mac la tipografía cambia levemente.</figcaption>
+        <figcaption className="mut">Así se ve, en distintos colores. Captura en Linux; en Windows y Mac la tipografía cambia levemente.</figcaption>
+      </figure>
+
+      <figure className="vista">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/teclado/captura-configuracion.png"
+          width="629"
+          height="514"
+          alt="Panel de configuración del teclado: color (seis temas), tamaño de teclas, transparencia, mostrar nombres, siempre encima, buscar actualizaciones, atajo y restablecer."
+        />
+        <figcaption className="mut">El botón ⚙ abre la configuración: color, tamaño de las teclas, transparencia y más.</figcaption>
       </figure>
 
       <section className="src" style={{ paddingTop: '2rem' }}>
@@ -50,10 +61,11 @@ export default function Teclado() {
           <ol>
             <li>Abra el programa: aparece una barra pequeña que queda siempre visible.</li>
             <li>Haga clic en su documento y deje el cursor donde quiere escribir.</li>
-            <li>Haga clic en una letra del teclado. Las pestañas α, Α, ± y H₂ cambian entre minúsculas, mayúsculas, símbolos y química o medicina (subíndices, superíndices, ⇌, ∑, ∝).</li>
+            <li>Haga clic en una letra del teclado. Las pestañas α, Α, ±, H₂ y ∫ cambian entre minúsculas, mayúsculas, símbolos, química o medicina (subíndices, superíndices, ⇌, ∑, ∝) y fisiología (V̇, Q̇, ∫, ∂).</li>
+            <li>El botón ⚙ abre la configuración: puede elegir el color del teclado, el tamaño de las teclas, la transparencia y si el teclado queda siempre encima.</li>
             <li>Pase el mouse sobre un símbolo para ver su nombre. La fila de arriba repite los últimos que usó.</li>
           </ol>
-          <p className="mut">El botón ▴ reduce el teclado a una sola fila. En Windows y en Linux con X11, <code>Ctrl+Alt+G</code> lo oculta y lo vuelve a mostrar.</p>
+          <p className="mut">El botón ▴ reduce el teclado a una sola fila. La configuración se guarda sola. En Windows y en Linux con X11, <code>Ctrl+Alt+G</code> lo oculta y lo vuelve a mostrar.</p>
         </section>
 
         <section className="rv">

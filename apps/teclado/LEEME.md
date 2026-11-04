@@ -31,10 +31,21 @@ Notas:
 - Para que una versión sea detectada, la etiqueta del release debe ser `teclado-vX.Y` (como indica «Publicar una versión nueva») y no estar marcada como *pre-release*.
 - Pruebas: desde esta carpeta, `python -m unittest pruebas.probar_actualizacion -v` (en Linux sin pantalla, anteponga `xvfb-run -a`).
 
+## Novedades de la versión 1.6
+
+- Nueva pestaña **∫** (fisiología y matemática): V̇, v̇ y Q̇ (letra con punto encima, para flujos), integral, derivada parcial, lógica, ⊕ ⊖, ♂ ♀ y tilde/cruz.
+- La pestaña **±** suma −, ÷, ≡, ≅, ∼, ≪ y ≫.
+- ² y ³ aparecen también en la pestaña **H₂**. Son el mismo símbolo: en la fila de recientes figuran una sola vez.
+- **Diseño nuevo:** teclas de esquinas redondeadas y separadas, recientes con contorno, pestaña activa subrayada y una línea que separa los recientes. El punto de V̇, v̇ y Q̇ se dibuja centrado sobre la letra. Las esquinas y los círculos se dibujan con bordes suavizados (imágenes PNG generadas por el propio programa; si el Tk del sistema no admite PNG se usa un dibujo sin suavizar).
+- **Botón ⚙ (configuración):** color (Medianoche, Océano, Bosque, Violeta, Grafito y Claro), tamaño de las teclas (pequeño, normal, grande), transparencia (60 % a 100 %), mostrar u ocultar los nombres al pasar el mouse, «Siempre encima» (sí/no), activar o desactivar la búsqueda de actualizaciones, y «Restablecer». Todo se guarda en `config.json` (claves `tema`, `tamano`, `alpha`, `nombres`, `arriba`).
+- El atajo se muestra en la configuración, pero se sigue cambiando en `config.json` (ver más abajo).
+- El ancho del teclado no cambia. Se actualiza solo desde la 1.5.
+
 ## Uso del teclado
 
 - **Escribir:** haga clic en un símbolo y se escribe donde esté el cursor. Al pasar el mouse por encima, la barra superior muestra su nombre.
 - **Recientes:** la fila de arriba repite los últimos 9 símbolos usados.
+- **Configuración:** el botón `⚙` abre el panel; elegir una pestaña lo cierra.
 - **Modo compacto:** el botón `▴` deja solo la barra y la fila de recientes; `▾` lo expande (elegir una pestaña también lo expande).
 - **Ocultar y mostrar:** con el atajo **Ctrl+Alt+G** (solo Windows y Linux con X11). Si el teclado no aparece, pruebe el atajo: puede estar oculto.
 - **Si no puede escribir** (por ejemplo, en un programa que se ejecuta como administrador), el teclado lo avisa y copia el símbolo para pegarlo con Ctrl+V.
