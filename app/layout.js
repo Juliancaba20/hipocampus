@@ -34,7 +34,13 @@ export default function RootLayout({ children }) {
         <div className="wrap">
           <Nav />
           <div id="contenido">{children}</div>
-          <footer>Hecho por un estudiante de medicina, para estudiantes. ¿Encontró un error o tiene una sugerencia? <Link href="/contacto">Infórmelo aquí</Link>.</footer>
+          <footer>
+            <p>Hecho por un estudiante de medicina, para estudiantes. ¿Encontró un error o tiene una sugerencia? <Link href="/contacto">Infórmelo aquí</Link>.</p>
+            <nav className="redes-sociales" aria-label="Redes sociales">
+              <a href="https://www.instagram.com/hipocampus.web/" target="_blank" rel="noopener noreferrer">Instagram: @hipocampus.web</a>
+              <a href="https://x.com/Hipocampusweb" target="_blank" rel="noopener noreferrer">X: @Hipocampusweb</a>
+            </nav>
+          </footer>
         </div>
         <Analytics />
       </body>

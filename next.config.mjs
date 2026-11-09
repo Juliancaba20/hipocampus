@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: { agentUpgrade: 'security' },
   // Las fuentes de las historias de Instagram se leen del disco: hay que incluirlas en el despliegue.
   outputFileTracingIncludes: { '/api/frase-historia': ['./app/api/frase-historia/fuentes/**'] },
   async redirects() {

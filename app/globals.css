@@ -162,6 +162,8 @@ td.lvl{color:var(--c);font-weight:600;white-space:nowrap}
 .src{max-width:62rem}
 footer a{color:var(--brand-d);font-weight:600}
 footer{margin-top:1rem;padding:2rem 0 3rem;color:var(--mut);text-align:center;border-top:3px solid;border-image:linear-gradient(90deg,var(--brand),var(--co-s)) 1}
+footer p{margin:0}
+.redes-sociales{display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem 1.5rem;margin-top:.5rem}
 
 /* ---------- Teclado Científico (/teclado) ---------- */
 .aviso-movil{display:none;margin:1rem 0 0;padding:.8rem 1rem;border:2px solid var(--brand);border-radius:12px;background:var(--brand-l)}
