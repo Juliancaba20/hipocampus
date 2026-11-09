@@ -40,7 +40,7 @@ import urllib.request
 import webbrowser
 import zlib
 
-VERSION = "1.6"
+VERSION = "1.8"
 NOMBRE_APP = "TecladoCientifico"
 NOMBRE_APP_ANTERIOR = "TecladoGriego"  # nombre de la carpeta de configuración hasta la v1.3
 SISTEMA = sys.platform  # "win32", "darwin" o "linux"

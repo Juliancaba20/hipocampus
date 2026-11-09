@@ -10,13 +10,14 @@ Teclado flotante para escribir letras griegas y símbolos con un clic. Funciona 
 
 ## Publicar una versión nueva
 
-1. Modifique `teclado_griego.py` y actualice la constante `VERSION` (por ejemplo `"1.5"`). Suba el cambio a GitHub.
-2. En GitHub: *Releases > Draft a new release*. En *Choose a tag* escriba `teclado-v1.5` (la etiqueta debe empezar con `teclado-v` y terminar con el número de versión), elija *Create new tag* y luego *Publish release*.
+1. Modifique `teclado_griego.py` y actualice la constante `VERSION` (por ejemplo `"1.8"`). Suba el cambio a GitHub.
+2. En GitHub: *Releases > Draft a new release*. En *Choose a tag* escriba `teclado-v1.8` (la etiqueta debe empezar con `teclado-v` y terminar con el mismo número que `VERSION`), elija *Create new tag* y luego *Publish release*.
 3. Espere unos 5 minutos y revise la pestaña *Actions*: deben aparecer tres tareas en verde (Windows, macOS, Linux). Al terminar, los tres archivos quedan adjuntos al release: `TecladoCientifico-Windows.exe`, `TecladoCientifico-Mac.zip` y `TecladoCientifico-Linux.tar.gz`.
 4. La página `/teclado` enlaza siempre a la última versión publicada y toma el número de la etiqueta. No hay que editar nada en el sitio.
 
 Notas:
 - La compilación usa el código que existe **en el momento de crear la etiqueta**. Por eso conviene subir primero el cambio del programa (paso 1) y recién después publicar el release.
+- La compilación verifica que el número de la etiqueta y `VERSION` coincidan. Si no coinciden, se detiene para evitar que la actualización automática instale un programa que siga anunciando una versión anterior.
 - Si un release quedó mal (archivos con otro nombre o de una versión equivocada), bórrelo junto con su etiqueta (*Releases > Delete*, y luego *Tags* para borrar la etiqueta) y vuelva a crearlo.
 - También puede ejecutar la compilación a mano desde *Actions > Compilar Teclado Científico > Run workflow*, eligiendo una etiqueta existente.
 

@@ -36,6 +36,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Comprobar que la etiqueta coincide con la versión del programa
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(python -c 'import ast; print(next(n.value.value for n in ast.parse(open("teclado_griego.py", encoding="utf-8").read()).body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "VERSION" for t in n.targets)))')
+          etiqueta="${GITHUB_REF_NAME##*-v}"
+          if [ "$etiqueta" != "$version" ]; then
+            echo "::error::La etiqueta indica $etiqueta, pero teclado_griego.py declara VERSION=$version."
+            exit 1
+          fi
+
       - name: Instalar Tk y pantalla virtual en Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
