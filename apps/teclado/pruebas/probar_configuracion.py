@@ -151,15 +151,6 @@ class ProbarInterfaz(unittest.TestCase):
         k.raiz.update_idletasks()
         self.assertEqual(k.raiz.winfo_reqwidth(), ancho)
 
-    def test_fijar_tamano_no_reconstruye_las_pestanas(self):
-        k = self.crear()
-        paginas = []
-        k.mostrar = paginas.append
-
-        k.fijar_tamano()
-
-        self.assertEqual(paginas, [])
-
     def test_punto_de_v_centrado_sobre_la_letra(self):
         k = self.crear()
         k.cambiar_pagina("∫")

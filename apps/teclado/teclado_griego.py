@@ -40,7 +40,7 @@ import urllib.request
 import webbrowser
 import zlib
 
-VERSION = "1.8"
+VERSION = "1.6"
 NOMBRE_APP = "TecladoCientifico"
 NOMBRE_APP_ANTERIOR = "TecladoGriego"  # nombre de la carpeta de configuración hasta la v1.3
 SISTEMA = sys.platform  # "win32", "darwin" o "linux"
@@ -1255,12 +1255,13 @@ class Teclado:
 
     def fijar_tamano(self):
         """Todas las pestañas ocupan lo mismo que la más grande (sin saltos de alto)."""
-        _, ancho_tecla, alto_tecla, _ = self.medidas()
-        columnas = min(COLUMNAS, max(len(teclas) for teclas in PAGINAS.values()))
-        filas = max((len(teclas) + COLUMNAS - 1) // COLUMNAS for teclas in PAGINAS.values())
-        separacion = self.px(3)
-        ancho = columnas * ancho_tecla + (columnas - 1) * separacion
-        alto = filas * alto_tecla + filas * separacion
+        ancho = alto = 0
+        self.cuadricula.grid_propagate(True)  # vuelve a medir (cambio de tamaño de teclas)
+        for nombre in PAGINAS:
+            self.mostrar(nombre)
+            self.raiz.update_idletasks()
+            ancho = max(ancho, self.cuadricula.winfo_reqwidth())
+            alto = max(alto, self.cuadricula.winfo_reqheight())
         self.cuadricula.configure(width=ancho, height=alto)
         self.cuadricula.grid_propagate(False)
         self.aviso.configure(wraplength=max(ancho - 12, 100))
@@ -1516,7 +1517,8 @@ class Teclado:
 
     def construir_config(self):
         """Arma el panel de configuración (se rehace al cambiar algo, para reflejarlo)."""
-        anterior = self.panel
+        if self.panel is not None:
+            self.panel.destroy()
         panel = self.panel = tk.Frame(self.raiz, bg=C["fondo"])
         panel._roles = {"bg": "fondo"}
         fijo = tk.Frame(panel, width=self.ancho_config, height=1, bg=C["fondo"])
@@ -1597,12 +1599,7 @@ class Teclado:
         for pieza in (marco, interior, rotulo, zona, valores):
             pieza.configure(cursor="hand2")
             pieza.bind("<Button-1>", lambda e: self.restablecer())
-        if anterior is None or anterior.winfo_manager() != "pack":
-            panel.pack(fill="x")
-        else:
-            panel.pack(fill="x", before=anterior)
-            anterior.pack_forget()
-            anterior.destroy()
+        panel.pack(fill="x")
 
     def aplicar_tema(self, nombre):
         if nombre not in TEMAS:
