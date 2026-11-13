@@ -6,6 +6,7 @@ import {
 } from 'react';
 import {
   borrarElementos, crearAutoguardado, guardarAjuste, guardarDocumento, guardarElementos, guardarPendientesDeEscena, listarElementos, nuevoId, obtenerAjuste,
+  programarActualizacionIndice,
 } from '../almacen/index.js';
 import { Escena } from '../lienzo/escena.js';
 import { Lienzo } from '../lienzo/motor.js';
@@ -18,12 +19,24 @@ import { ES_FORMA } from '../app/formas.js';
 import PanelFigura from '../app/PanelFigura.jsx';
 import PanelImagen from '../app/PanelImagen.jsx';
 import InsertarImagen from '../app/InsertarImagen.jsx';
+import SelectorIconos from '../app/SelectorIconos.jsx';
+import SelectorColor from '../app/SelectorColor.jsx';
 import { Modal } from '../app/Modal.jsx';
+import BarraBusquedaDocumento from '../app/BarraBusquedaDocumento.jsx';
+import ModalExportarImagen from '../app/ModalExportarImagen.jsx';
+import ModalExportarPdf from '../app/ModalExportarPdf.jsx';
+import ModalGuardarPlantilla from '../app/ModalGuardarPlantilla.jsx';
+import ModalEnlacesEntrantes from '../app/ModalEnlacesEntrantes.jsx';
+import ModalMarcadores from '../app/ModalMarcadores.jsx';
+import BarraInstrumentosPrecision from '../app/BarraInstrumentosPrecision.jsx';
+import BarraLapicesFavoritos from '../app/BarraLapicesFavoritos.jsx';
 import {
-  Boton, Propiedades, TEXTO_ESTADO,
+  BarraSeleccion, Boton, Propiedades,
 } from '../app/EditorComun.jsx';
+import { TEXTO_ESTADO } from '../app/utiles.js';
 import {
-  asignarHuerfanos, duplicarElementosTarjeta, elementosDeTarjeta, medidasTarjeta, moverTarjeta, normalizarPersonalizado, normalizarTarjetasConfig,
+  asignarHuerfanos, reubicarEnTarjeta, duplicarElementosTarjeta, elementosDeTarjeta, medidasTarjeta, moverTarjeta, normalizarPersonalizado, normalizarTarjetasConfig,
+  DISENOS_TARJETA, LISTA_DISENOS_TARJETA, cambiarDisenoTarjeta,
 } from './tarjetas.js';
 import { aplicarOperacion, crearHistorialTarjetas, crearOperacion } from './historialTarjetas.js';
 import EstudioTarjetas from './EstudioTarjetas.jsx';
@@ -59,7 +72,23 @@ export default function EditorTarjetas({ doc, volver }) {
   // Control de tira lateral, cuadrícula y número de revisión para miniaturas
   const [mostrarTira, setMostrarTira] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 900 : true));
   const [mostrarCuadricula, setMostrarCuadricula] = useState(false);
-  const [mostrarEstudio, setMostrarEstudio] = useState(false);
+  const [mostrarEstudio, setMostrarEstudio] = useState(() => !!doc.destinoInicial?.modoEstudio);
+  const [mostrarNotasOrador, setMostrarNotasOrador] = useState(false);
+  const [datosPlantilla, setDatosPlantilla] = useState(null);
+  const [modalEnlaces, setModalEnlaces] = useState(false);
+  const [modalMarcadores, setModalMarcadores] = useState(false);
+  const [busquedaDoc, setBusquedaDoc] = useState(false);
+
+  useEffect(() => {
+    const alTecla = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setBusquedaDoc((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', alTecla);
+    return () => window.removeEventListener('keydown', alTecla);
+  }, []);
   // Revisión de contenido por tarjeta: solo se redibuja la miniatura de la tarjeta que cambió
   const [revs, setRevs] = useState({});
   const marcarRev = useCallback((...ids) => {
@@ -137,8 +166,10 @@ export default function EditorTarjetas({ doc, volver }) {
   const todosElementosRef = useRef([]);
   const [cargado, setCargado] = useState(false);
 
-  // Modal de impresión
+  // Modal de impresión y exportación
   const [modalImprimir, setModalImprimir] = useState(false);
+  const [modalExportarImagen, setModalExportarImagen] = useState(false);
+  const [modalExportarPdf, setModalExportarPdf] = useState(false);
   const [modoImpresion, setModoImpresion] = useState('todas'); // todas | actual
   const [imprimirRenglones, setImprimirRenglones] = useState(cfg.imprimirRenglones);
   const [porHoja, setPorHoja] = useState(cfg.porHoja || 1);
@@ -156,22 +187,30 @@ export default function EditorTarjetas({ doc, volver }) {
   const tarjetaActual = cfg.tarjetas.find((t) => t.id === cfg.tarjetaActiva) || cfg.tarjetas[0];
   const indiceActual = cfg.tarjetas.findIndex((t) => t.id === tarjetaActual.id);
 
-  // Guarda los elementos de la tarjeta activa en el almacén global
+  const [caraActiva, setCaraActiva] = useState('anverso');
+  const caraActivaRef = useRef('anverso');
+  useEffect(() => { caraActivaRef.current = caraActiva; }, [caraActiva]);
+
+  // Guarda los elementos de la tarjeta activa en el almacén global distinguiendo la cara activa
   const sincronizarEscenaActual = useCallback(() => {
     if (!motorRef.current) return;
     const activa = cfgRef.current.tarjetaActiva;
-    const activos = motorRef.current.escena.lista();
-    const resto = todosElementosRef.current.filter((el) => el.contenedor !== activa);
+    const cara = caraActivaRef.current || 'anverso';
+    const activos = motorRef.current.escena.lista().map((el) => ({ ...el, cara: el.cara || cara }));
+    const resto = todosElementosRef.current.filter((el) => {
+      if (el.contenedor !== activa) return true;
+      const elCara = el.cara || 'anverso';
+      return elCara !== cara;
+    });
     todosElementosRef.current = [...resto, ...activos];
   }, []);
 
-  // Obtiene los elementos de una tarjeta para su miniatura: la activa desde la escena del motor, las demás desde memoria
-  // (referencia estable: no fuerza el redibujado de todas las miniaturas al cambiar de tarjeta)
-  const obtenerLista = useCallback((id) => {
-    if (id === cfgRef.current.tarjetaActiva && motorRef.current) {
+  // Obtiene los elementos de una tarjeta para su miniatura o estudio
+  const obtenerLista = useCallback((id, cara = null) => {
+    if (id === cfgRef.current.tarjetaActiva && motorRef.current && (cara === null || cara === caraActivaRef.current)) {
       return motorRef.current.escena.lista();
     }
-    return elementosDeTarjeta(todosElementosRef.current, id);
+    return elementosDeTarjeta(todosElementosRef.current, id, cara);
   }, []);
 
   // Actualiza la configuración del documento y programa el autoguardado
@@ -222,11 +261,19 @@ export default function EditorTarjetas({ doc, volver }) {
     escena.historial.alRegistrar = () => histTarjetasRef.current.limpiarFuturo();
   }, []);
 
-  // Pone en el motor la escena de una tarjeta (con los elementos que hay en memoria).
-  // Quita la suscripción de la escena anterior para que no quede ninguna colgada.
-  const montarEscena = useCallback((id) => {
+  // Pone en el motor la escena de una tarjeta y cara (con los elementos que hay en memoria).
+  const montarEscena = useCallback((id, cara = 'anverso') => {
     const motor = motorRef.current;
-    const nuevaEscena = new Escena(elementosDeTarjeta(todosElementosRef.current, id));
+    const tarjeta = cfgRef.current.tarjetas.find((t) => t.id === id);
+    const caraEfectiva = (cara === 'reverso' && tarjeta?.dobleCara) ? 'reverso' : 'anverso';
+    const fondoFace = caraEfectiva === 'reverso' ? (tarjeta?.fondoReverso || null) : (tarjeta?.fondo || null);
+    const med = medidasTarjeta(cfgRef.current.tamano, cfgRef.current.personalizado);
+    motor.setMarco({ x: 0, y: 0, ancho: med.ancho, alto: med.alto, fondo: fondoFace });
+    motor.setCara(caraEfectiva);
+    caraActivaRef.current = caraEfectiva;
+    setCaraActiva(caraEfectiva);
+
+    const nuevaEscena = new Escena(elementosDeTarjeta(todosElementosRef.current, id, caraEfectiva));
     enlazarEscena(nuevaEscena);
     bajaEscenaInicialRef.current();
     bajaEscenaInicialRef.current = () => {};
@@ -242,6 +289,53 @@ export default function EditorTarjetas({ doc, volver }) {
     });
     return nuevaEscena;
   }, [enlazarEscena]);
+
+  // Cambia la cara activa de la tarjeta actual (anverso <-> reverso)
+  const cambiarCara = useCallback((nuevaCara) => {
+    if (!motorRef.current || nuevaCara === caraActivaRef.current) return;
+    const motor = motorRef.current;
+    motor.cerrarTexto();
+    motor.finalizarGestoEnCurso?.();
+    sincronizarEscenaActual();
+    guardarPendientesDeEscena(() => motor.escena);
+
+    caraActivaRef.current = nuevaCara;
+    setCaraActiva(nuevaCara);
+    motor.setCara(nuevaCara);
+
+    const tarjeta = cfgRef.current.tarjetas.find((t) => t.id === cfgRef.current.tarjetaActiva);
+    const fondoFace = nuevaCara === 'reverso' ? (tarjeta?.fondoReverso || null) : (tarjeta?.fondo || null);
+    const med = medidasTarjeta(cfgRef.current.tamano, cfgRef.current.personalizado);
+    motor.setMarco({ x: 0, y: 0, ancho: med.ancho, alto: med.alto, fondo: fondoFace });
+    // Al voltear, la vista vuelve a encuadrar la tarjeta: así el texto nuevo cae dentro de sus límites
+    // (antes podía crearse con coordenadas negativas, fuera de la tarjeta, y el estudio no lo mostraba).
+    const enc = encuadrar({ x: 0, y: 0, ancho: med.ancho, alto: med.alto }, motor.ancho, motor.alto, 50);
+    motor.camara = enc;
+    motor._camaraCambio();
+
+    const nuevaEscena = new Escena(elementosDeTarjeta(todosElementosRef.current, cfgRef.current.tarjetaActiva, nuevaCara));
+    enlazarEscena(nuevaEscena);
+    motor._desuscribir?.();
+    motor.escena = nuevaEscena;
+    motor._limpiarSeleccion();
+    motor._desuscribir = nuevaEscena.suscribir(() => {
+      motor._limpiarSeleccion();
+      motor.pedirDibujo();
+      motor._notificar();
+      autoRef.current?.programar();
+    });
+    motor.pedirDibujo();
+    motor._notificar();
+  }, [sincronizarEscenaActual, enlazarEscena]);
+
+  // Habilita o deshabilita doble cara en la tarjeta actual
+  const alternarDobleCara = useCallback((activa) => {
+    const lista = cfgRef.current.tarjetas.map((t) => (t.id === tarjetaActual.id ? { ...t, dobleCara: activa } : t));
+    guardarCambioConfig({ ...cfgRef.current, tarjetas: lista });
+    if (!activa && caraActivaRef.current === 'reverso') {
+      cambiarCara('anverso');
+    }
+  }, [tarjetaActual.id, guardarCambioConfig, cambiarCara]);
 
   // Inicialización del motor y autoguardado
   useEffect(() => {
@@ -273,18 +367,43 @@ export default function EditorTarjetas({ doc, volver }) {
       }
       if (!vivo) return;
 
+      // Elementos guardados fuera de los límites de su tarjeta (por ejemplo, un reverso creado con la cámara
+      // desplazada): se reubican dentro, una sola vez. Sin esto no aparecen en el modo estudio.
+      const med0 = medidasTarjeta(cfgRef.current.tamano, cfgRef.current.personalizado);
+      const reubicados = [];
+      elementos = elementos.map((el) => {
+        if (el.tipo === 'trazo' || !el.contenedor) return el;
+        const nuevo = reubicarEnTarjeta(el, med0);
+        if (nuevo === el) return el;
+        reubicados.push({ ...nuevo, modificado: Date.now() });
+        return reubicados[reubicados.length - 1];
+      });
+      if (reubicados.length) {
+        try { await guardarElementos(reubicados); } catch (e) { setError(e.message); }
+      }
+
       todosElementosRef.current = elementos;
+
+      // Si se abre desde un resultado de búsqueda con destino específico a una tarjeta
+      const tarjetaDestino = doc.destinoInicial?.ubicacion?.contenedor || doc.destinoInicial?.tarjetaId;
+      if (tarjetaDestino && cfgRef.current.tarjetas.some((t) => t.id === tarjetaDestino)) {
+        cfgRef.current = { ...cfgRef.current, tarjetaActiva: tarjetaDestino };
+        setCfg((c) => ({ ...c, tarjetaActiva: tarjetaDestino }));
+      }
+
       const escena = new Escena(elementosDeTarjeta(elementos, cfgRef.current.tarjetaActiva));
       enlazarEscena(escena);
 
       // El autoguardado guarda siempre la escena vigente del motor (cambia al pasar de una tarjeta a otra)
       auto = crearAutoguardado(async () => {
-        motorRef.current?.finalizarGestoEnCurso();
+        // No se finaliza el gesto en curso: guardar a mitad de un trazo (por ejemplo, mientras se mantiene el lápiz
+        // quieto para enderezar una línea) lo cortaba. El trazo se guarda al soltar, al salir o al cambiar de pestaña.
         motorRef.current?.puntoDeControlTexto();
         await guardarPendientesDeEscena(() => motorRef.current?.escena || escena, undefined, async ({ guardados, borrados }) => {
           const hayContenido = guardados > 0 || borrados > 0 || tituloSucio.current;
           tituloSucio.current = false;
           await guardarDocumento(docRef.current, { tocarFecha: hayContenido });
+          programarActualizacionIndice(docRef.current.id, { doc: docRef.current, elementos: todosElementosRef.current });
         });
       }, { espera: 700 });
 
@@ -316,7 +435,7 @@ export default function EditorTarjetas({ doc, volver }) {
         escritura: doc.escritura,
         renglones: doc.renglones,
         contenedor: cfgRef.current.tarjetaActiva,
-        marco: { x: 0, y: 0, ancho: med.ancho, alto: med.alto },
+        marco: { x: 0, y: 0, ancho: med.ancho, alto: med.alto, fondo: tarjetaActual?.fondo || cfgRef.current?.fondo || null },
         alRenglones: (r) => {
           docRef.current = { ...docRef.current, renglones: r };
           auto.programar();
@@ -341,6 +460,10 @@ export default function EditorTarjetas({ doc, volver }) {
       };
 
       motorRef.current = motor;
+      if (doc.destinoInicial?.elementoId) {
+        motor.seleccionar([doc.destinoInicial.elementoId]);
+        motor.pedirDibujo();
+      }
       motor._notificar();
       setCargado(true);
 
@@ -390,18 +513,31 @@ export default function EditorTarjetas({ doc, volver }) {
   }, [cambiarA]);
 
   // Agregar una tarjeta nueva
-  const agregarTarjeta = useCallback(async () => {
+  const agregarTarjeta = useCallback(async (disenoDeseado = 'en-blanco') => {
     const actual = cfgRef.current;
     const id = nuevoId();
-    const nueva = { id, titulo: `Tarjeta ${actual.tarjetas.length + 1}` };
+    const nueva = {
+      id,
+      titulo: `Tarjeta ${actual.tarjetas.length + 1}`,
+      diseno: disenoDeseado,
+      notasOrador: '',
+    };
     const lista = [...actual.tarjetas, nueva];
     const activaAntes = actual.tarjetaActiva;
     await cambiarA(id, { tarjetas: lista });
+    if (disenoDeseado && disenoDeseado !== 'en-blanco' && motorRef.current) {
+      const med = medidasTarjeta(actual.tamano, actual.personalizado);
+      const r = cambiarDisenoTarjeta([], id, disenoDeseado, med, doc.id);
+      if (r.cambios?.length) {
+        motorRef.current.escena.ejecutar(r.cambios, 'Diseño de tarjeta');
+        sincronizarEscenaActual();
+      }
+    }
     histTarjetasRef.current.registrar(crearOperacion({
       tipo: 'agregar', tarjeta: nueva, indice: lista.length - 1, existeAntes: false, existeDespues: true, activaAntes, activaDespues: id,
     }));
     motorRef.current?._notificar();
-  }, [cambiarA]);
+  }, [cambiarA, doc.id, sincronizarEscenaActual]);
 
   // Duplicar la tarjeta actual
   const duplicarTarjeta = useCallback(async () => {
@@ -545,6 +681,31 @@ export default function EditorTarjetas({ doc, volver }) {
     guardarCambioConfig({ ...cfgRef.current, tarjetas: lista });
   }, [cfg.tarjetas, tarjetaActual.id, guardarCambioConfig]);
 
+  // Cambiar notas del orador de la tarjeta actual (no se imprimen)
+  const cambiarNotasOrador = useCallback((texto) => {
+    const lista = cfgRef.current.tarjetas.map((t) => (t.id === tarjetaActual.id ? { ...t, notasOrador: texto } : t));
+    guardarCambioConfig({ ...cfgRef.current, tarjetas: lista });
+  }, [tarjetaActual.id, guardarCambioConfig]);
+
+  // Cambiar diseño de la tarjeta actual conservando el contenido existente
+  const aplicarDiseno = useCallback((nuevoDiseno) => {
+    const motor = motorRef.current;
+    if (!motor) return;
+    const escena = motor.escena;
+    const med = medidasTarjeta(cfgRef.current.tamano, cfgRef.current.personalizado);
+    const cara = caraActivaRef.current || 'anverso';
+    const r = cambiarDisenoTarjeta(escena.lista(), tarjetaActual.id, nuevoDiseno, med, doc.id, cara);
+    if (r.cambios?.length) {
+      escena.ejecutar(r.cambios, 'Diseño de tarjeta');
+      sincronizarEscenaActual();
+    }
+    const campoDiseno = cara === 'reverso' ? 'disenoReverso' : 'diseno';
+    const lista = cfgRef.current.tarjetas.map((t) => (t.id === tarjetaActual.id ? { ...t, [campoDiseno]: nuevoDiseno } : t));
+    guardarCambioConfig({ ...cfgRef.current, tarjetas: lista });
+    motor.pedirDibujo();
+    motor._notificar();
+  }, [tarjetaActual.id, doc.id, sincronizarEscenaActual, guardarCambioConfig]);
+
   // Reordenar tarjetas arrastrando o con atajos de teclado manteniendo la tarjeta activa
   const reordenarTarjetas = useCallback((desde, hasta) => {
     if (desde === hasta) return;
@@ -556,11 +717,50 @@ export default function EditorTarjetas({ doc, volver }) {
     });
   }, [guardarCambioConfig]);
 
-  // Modo estudio: antes de abrirlo se termina cualquier edición de texto en curso
+  // Paso de estudio asignado a los elementos seleccionados (Etapa 21C)
+  const pasoSeleccionComun = useMemo(() => {
+    if (!ui || !ui.seleccionados || !motorRef.current) return 0;
+    const selIds = [...(motorRef.current.seleccion || [])];
+    if (!selIds.length) return 0;
+    const primerEl = motorRef.current.escena?.get(selIds[0]);
+    return primerEl?.pasoEstudio || 0;
+  }, [ui, motorRef.current?.escena?.version]);
+
+  const asignarPasoSeleccion = useCallback((paso) => {
+    const motor = motorRef.current;
+    if (!motor) return;
+    const escena = motor.escena;
+    const selIds = [...(motor.seleccion || [])];
+    if (!selIds.length) return;
+    const cambios = [];
+    for (const id of selIds) {
+      const el = escena.get(id);
+      if (el) {
+        const nuevoPaso = paso > 0 ? paso : undefined;
+        if (el.pasoEstudio !== nuevoPaso) {
+          const despues = { ...el };
+          if (nuevoPaso) despues.pasoEstudio = nuevoPaso;
+          else delete despues.pasoEstudio;
+          cambios.push({ id, antes: el, despues });
+        }
+      }
+    }
+    if (cambios.length) {
+      escena.ejecutar(cambios, 'Asignar paso de estudio');
+      sincronizarEscenaActual();
+      motor.pedirDibujo();
+      motor._notificar();
+    }
+  }, [sincronizarEscenaActual]);
+
+  // Modo estudio: antes de abrirlo se termina cualquier edición de texto en curso y se sincroniza la escena
   const abrirEstudio = useCallback(() => {
     motorRef.current?.cerrarTexto();
+    sincronizarEscenaActual();
     setMostrarEstudio(true);
-  }, []);
+  }, [sincronizarEscenaActual]);
+
+  const [imprimirCaras, setImprimirCaras] = useState('ambas');
 
   // Preparar e iniciar impresión con construirHojasTarjetas
   const ejecutarImpresion = useCallback(async () => {
@@ -576,41 +776,51 @@ export default function EditorTarjetas({ doc, volver }) {
     const med = medidasTarjeta(cfg.tamano, cfg.personalizado);
     const factor = factorResolucion(tarjetasAImprimir.length, { alto: 2, medio: 2, bajo: 1.5 });
 
-    try { construirHojasTarjetas(cont, {
-      tarjetas: tarjetasAImprimir,
-      med,
-      porHoja,
-      marcas: marcasDeCorte,
-      titulo: docRef.current.titulo || doc.titulo,
-      factor,
-      dibujarEn: (cv, tarjeta, idx, f) => {
-        const cx = cv.getContext('2d');
-        const esActiva = tarjeta.id === tarjetaActual.id && motorRef.current;
-        const escenaAUsar = esActiva
-          ? motorRef.current.escena
-          : new Escena(elementosDeTarjeta(todosElementosRef.current, tarjeta.id));
-        const lista = escenaAUsar.lista();
+    try {
+      construirHojasTarjetas(cont, {
+        tarjetas: tarjetasAImprimir,
+        med,
+        porHoja,
+        marcas: marcasDeCorte,
+        titulo: docRef.current.titulo || doc.titulo,
+        factor,
+        ambasCaras: imprimirCaras === 'ambas',
+        dibujarEn: (cv, itemTarjeta, idx, f) => {
+          const cx = cv.getContext('2d');
+          const caraAImprimir = itemTarjeta.caraImpresion || 'anverso';
+          const esActiva = itemTarjeta.id === tarjetaActual.id && motorRef.current && caraAImprimir === caraActivaRef.current;
+          const escenaAUsar = esActiva
+            ? motorRef.current.escena
+            : new Escena(elementosDeTarjeta(todosElementosRef.current, itemTarjeta.id, caraAImprimir));
+          const lista = escenaAUsar.lista();
+          const fondoCara = caraAImprimir === 'reverso' ? (itemTarjeta.fondoReverso || itemTarjeta.fondo || null) : (itemTarjeta.fondo || null);
 
-        dibujar(cx, {
-          camara: { x: 0, y: 0, zoom: 1 },
-          ancho: med.ancho,
-          alto: med.alto,
-          dpr: f,
-          lista,
-          escena: escenaAUsar,
-          seleccion: new Set(),
-          marco: null,
-          mostrarManijas: null,
-          renglones: imprimirRenglones ? { cfg: docRef.current.renglones, opacidad: 1 } : null,
-          guiaTexto: docRef.current.renglones,
-          marcoDocumento: { x: 0, y: 0, ancho: med.ancho, alto: med.alto },
-        });
-      },
-    }); } finally { recursosImagen.liberar(); }
+          dibujar(cx, {
+            camara: { x: 0, y: 0, zoom: 1 },
+            ancho: med.ancho,
+            alto: med.alto,
+            dpr: f,
+            lista,
+            escena: escenaAUsar,
+            seleccion: new Set(),
+            marco: null,
+            mostrarManijas: null,
+            renglones: imprimirRenglones ? { cfg: docRef.current.renglones, opacidad: 1 } : null,
+            guiaTexto: docRef.current.renglones,
+            marcoDocumento: { x: 0, y: 0, ancho: med.ancho, alto: med.alto, fondo: fondoCara || cfgRef.current?.fondo || null },
+            opciones: {
+              opcionesOculto: { modoImpresionLimpio: true },
+            },
+          });
+        },
+      });
+    } finally {
+      recursosImagen.liberar();
+    }
 
     setModalImprimir(false);
     imprimirContenedor(cont);
-  }, [modoImpresion, tarjetaActual, cfg.tarjetas, cfg.tamano, cfg.personalizado, porHoja, marcasDeCorte, imprimirRenglones, doc.titulo, sincronizarEscenaActual]);
+  }, [modoImpresion, tarjetaActual, cfg.tarjetas, cfg.tamano, cfg.personalizado, porHoja, marcasDeCorte, imprimirRenglones, imprimirCaras, doc.titulo, sincronizarEscenaActual]);
 
   const [exportando, setExportando] = useState(false);
 
@@ -657,7 +867,7 @@ export default function EditorTarjetas({ doc, volver }) {
   return (
     <div className="nt-editor nt-editor--tarjetas">
       <header className="nt-ed-cab">
-        <button className="nt-btn" onClick={salir}>← Biblioteca</button>
+        <button className="nt-btn" onClick={salir}>Biblioteca</button>
         <input className="nt-ed-titulo" aria-label="Título del documento" value={titulo} onChange={(e) => cambiarTituloDoc(e.target.value)} />
         <button
           ref={botonTamanoRef}
@@ -668,7 +878,7 @@ export default function EditorTarjetas({ doc, volver }) {
           aria-expanded={menuTamanoAbierto}
           title="Cambiar proporción o tamaño de las tarjetas"
         >
-          Tamaño: {medidas.nombre} ▾
+          Tamaño: {medidas.nombre}
         </button>
         <button
           type="button"
@@ -698,6 +908,28 @@ export default function EditorTarjetas({ doc, volver }) {
         <span className={`nt-estado ${estado === 'guardado' ? 'nt-estado--ok' : ''} ${estado.startsWith('error') ? 'nt-estado--error' : ''}`} aria-live="polite">
           {TEXTO_ESTADO[estado] ?? TEXTO_ESTADO.error}
         </span>
+        <Boton icono="buscar" nombre="Buscar en este documento (Ctrl+F)" activo={busquedaDoc} alPulsar={() => setBusquedaDoc((v) => !v)} />
+        <Boton icono="lista" nombre="Índice de tarjetas del mazo" alPulsar={() => setModalMarcadores(true)} />
+        <button
+          type="button"
+          className="nt-btn"
+          style={{ fontSize: '12px', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          title="Notas que enlazan a este documento y conexiones salientes"
+          onClick={() => setModalEnlaces(true)}
+        >
+          Conexiones
+        </button>
+        <Boton icono="imagen" nombre="Exportar a imagen (PNG / JPG)" alPulsar={() => setModalExportarImagen(true)} />
+        <Boton icono="pdf" nombre="Exportar a PDF" alPulsar={() => setModalExportarPdf(true)} />
+        <Boton
+          icono="plantilla"
+          nombre="Guardar como plantilla propia…"
+          alPulsar={() => {
+            const docActual = docRef.current || doc;
+            const elementosActuales = todosElementosRef.current || [];
+            setDatosPlantilla({ doc: docActual, elementos: elementosActuales });
+          }}
+        />
         <Boton icono="imprimir" nombre="Imprimir o exportar tarjetas" alPulsar={() => setModalImprimir(true)} />
         <Boton icono="exportar" nombre="Exportar nota (.nota)" deshabilitado={exportando} alPulsar={ejecutarExportar} />
         <Boton icono="deshacer" nombre="Deshacer (Ctrl+Z)" conservarFoco deshabilitado={!ui?.puedeDeshacer} alPulsar={() => m()?.deshacer()} />
@@ -783,6 +1015,31 @@ export default function EditorTarjetas({ doc, volver }) {
                 </label>
               </div>
             )}
+
+            <div style={{ display: 'grid', gap: '6px', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 500 }}>Fondo de la ficha</span>
+                <SelectorColor
+                  colorActual={tarjetaActual?.fondo || cfg.fondo}
+                  etiqueta="Fondo de tarjeta"
+                  admitirDegradado={true}
+                  motorRef={motorRef}
+                  alCambiar={(nuevoFondo) => {
+                    const tarjetas = cfg.tarjetas.map((t) => (t.id === tarjetaActual.id ? { ...t, fondo: nuevoFondo } : t));
+                    const sig = { ...cfg, tarjetas, fondo: nuevoFondo };
+                    setCfg(sig);
+                    cfgRef.current = sig;
+                    docRef.current = { ...docRef.current, config: sig };
+                    autoRef.current?.programar();
+                    if (motorRef.current) {
+                      const med = medidasTarjeta(sig);
+                      motorRef.current.setMarco({ x: 0, y: 0, ancho: med.ancho, alto: med.alto, fondo: nuevoFondo });
+                      motorRef.current.pedirDibujo();
+                    }
+                  }}
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -790,13 +1047,24 @@ export default function EditorTarjetas({ doc, volver }) {
       <div className="nt-ed-trabajo">
         <nav className="nt-riel" aria-label="Herramientas">
           <Boton icono="seleccionar" nombre="Seleccionar (Alt+V)" activo={herr === 'seleccionar'} alPulsar={() => m()?.setHerramienta('seleccionar')} />
+          <Boton icono="lazo" nombre="Lazo de selección (Alt+Q)" activo={herr === 'lazo'} alPulsar={() => m()?.setHerramienta('lazo')} />
           <Boton icono="mano" nombre="Mover el lienzo (Alt+H)" activo={herr === 'mano'} alPulsar={() => m()?.setHerramienta('mano')} />
           {conMano && <Boton icono="lapiz" nombre="Lápiz (Alt+P)" activo={herr === 'lapiz'} alPulsar={() => m()?.setHerramienta('lapiz')} />}
           {conMano && <Boton icono="resaltador" nombre="Resaltador (Alt+M)" activo={herr === 'resaltador'} alPulsar={() => m()?.setHerramienta('resaltador')} />}
           {conMano && <Boton icono="borrador" nombre="Borrador (Alt+B)" activo={herr === 'borrador'} alPulsar={() => m()?.setHerramienta('borrador')} />}
           {conTeclado && <Boton icono="texto" nombre="Texto por cuadro (Alt+T)" activo={herr === 'texto'} alPulsar={() => m()?.setHerramienta('texto')} />}
           <InsertarImagen motorRef={motorRef} />
+          <SelectorIconos motorRef={motorRef} />
           <MenuFormas herramienta={herr} ultima={ES_FORMA(herr) ? herr : ultimaForma} alElegir={(f) => { setUltimaForma(f); m()?.setHerramienta(f); }} />
+          <hr />
+          <Boton icono="copiar" nombre="Copiar (Ctrl+C)" deshabilitado={!sel} alPulsar={() => m()?.copiar()} />
+          <Boton icono="cortar" nombre="Cortar (Ctrl+X)" deshabilitado={!sel} alPulsar={() => m()?.cortar()} />
+          <Boton icono="pegar" nombre="Pegar (Ctrl+V)" deshabilitado={!ui?.puedePegar} alPulsar={() => m()?.pegar()} />
+          <Boton icono="duplicar" nombre="Duplicar (Ctrl+D)" deshabilitado={!sel} alPulsar={() => m()?.duplicar()} />
+          <hr />
+          <Boton icono="agrupar" nombre="Agrupar selección (Ctrl+G)" deshabilitado={!ui?.puedeAgrupar} alPulsar={() => m()?.agruparSeleccion()} />
+          <Boton icono="desagrupar" nombre="Desagrupar selección (Ctrl+Shift+G)" deshabilitado={!ui?.puedeDesagrupar} alPulsar={() => m()?.desagruparSeleccion()} />
+          <Boton icono={ui?.algunoBloqueado ? 'desbloquear' : 'bloquear'} nombre={ui?.algunoBloqueado ? 'Desbloquear selección (Ctrl+L)' : 'Bloquear selección (Ctrl+L)'} deshabilitado={!sel} activo={ui?.algunoBloqueado} alPulsar={() => m()?.alternarBloqueoSeleccion()} />
           <hr />
           <Boton icono="frente" nombre="Traer al frente" deshabilitado={!sel} alPulsar={() => m()?.reordenar('frente')} />
           <Boton icono="subir" nombre="Subir una capa" deshabilitado={!sel} alPulsar={() => m()?.reordenar('subir')} />
@@ -825,10 +1093,48 @@ export default function EditorTarjetas({ doc, volver }) {
           <canvas ref={canvasRef} tabIndex={0} aria-label="Ficha de tarjeta" />
           <div className="nt-capa-texto" ref={capaTextoRef} />
 
+          {busquedaDoc && (
+            <BarraBusquedaDocumento
+              obtenerElementos={() => {
+                sincronizarEscenaActual();
+                return todosElementosRef.current || [];
+              }}
+              motorRef={motorRef}
+              alCerrar={() => setBusquedaDoc(false)}
+              alSaltar={async (c) => {
+                const tarjetaId = c.ubicacion?.contenedor;
+                if (tarjetaId && tarjetaId !== cfgRef.current.tarjetaActiva) {
+                  await cambiarA(tarjetaId);
+                }
+                motorRef.current?.centrarEnUbicacion(c.cajaDestacada || c.ubicacion);
+              }}
+            />
+          )}
+
           {ui && ['lapiz', 'resaltador', 'borrador'].includes(herr) && <Propiedades ui={ui} motorRef={motorRef} />}
-          {ui && (ES_FORMA(herr) || (herr === 'seleccionar' && ui.figura.seleccionadas > 0)) && <PanelFigura estilo={ui.figura} motorRef={motorRef} />}
+          {ui && (ES_FORMA(herr) || (herr === 'seleccionar' && (ui.figura.seleccionadas > 0 || ui.iconoSeleccionado))) && <PanelFigura estilo={ui.figura} motorRef={motorRef} />}
           {ui?.imagenSeleccionada && <PanelImagen imagen={ui.imagenSeleccionada} motorRef={motorRef} />}
           {ui?.texto && <BarraTexto estado={ui.texto} motorRef={motorRef} />}
+
+          {ui && (
+            <div
+              className="nt-precision-flotante"
+              style={{
+                position: 'absolute',
+                top: 12,
+                right: 14,
+                zIndex: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                alignItems: 'flex-end',
+                pointerEvents: 'auto',
+              }}
+            >
+              <BarraInstrumentosPrecision motorRef={motorRef} ui={ui} />
+              {conMano && <BarraLapicesFavoritos motorRef={motorRef} ui={ui} />}
+            </div>
+          )}
 
           {!cargado && !error && <p className="nt-lienzo__aviso">Cargando tarjeta…</p>}
           {error && <p className="nt-aviso nt-lienzo__aviso" role="alert">{error}</p>}
@@ -841,9 +1147,40 @@ export default function EditorTarjetas({ doc, volver }) {
             <button className="nt-ib" aria-label="Acercar" onClick={() => m()?.zoomPaso(1.25)}>+</button>
             <button className="nt-btn" onClick={encuadrarTarjeta}>Encuadrar</button>
             {ui && <MenuRenglones renglones={ui.renglones} motorRef={motorRef} />}
+            <Boton
+              icono="iman"
+              nombre={ui?.imanActivo ? 'Imán y guías inteligentes activados (clic para desactivar)' : 'Activar imán y guías inteligentes'}
+              activo={!!ui?.imanActivo}
+              alPulsar={() => m()?.toggleIman()}
+            />
           </div>
 
-          {sel && <div className="nt-seleccion">{ui.seleccionados} seleccionado{ui.seleccionados > 1 ? 's' : ''}</div>}
+          {sel && (
+            <BarraSeleccion
+              ui={ui}
+              motorRef={motorRef}
+              extra={(
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                  <span style={{ fontSize: '12px', color: '#475569', fontWeight: 500 }}>Paso:</span>
+                  <select
+                    className="nt-campo"
+                    style={{ padding: '2px 6px', fontSize: '12px', height: '26px' }}
+                    value={pasoSeleccionComun}
+                    onChange={(e) => asignarPasoSeleccion(Number(e.target.value))}
+                    title="Paso en el que se revela el elemento en modo estudio"
+                    aria-label="Paso de revelación en modo estudio"
+                  >
+                    <option value={0}>Sin paso (siempre visible)</option>
+                    <option value={1}>Paso 1 (primero)</option>
+                    <option value={2}>Paso 2</option>
+                    <option value={3}>Paso 3</option>
+                    <option value={4}>Paso 4</option>
+                    <option value={5}>Paso 5</option>
+                  </select>
+                </div>
+              )}
+            />
+          )}
 
           {/* Barra inferior de navegación entre tarjetas */}
           <div className="nt-barra-tarjetas" role="region" aria-label="Navegación de tarjetas">
@@ -855,7 +1192,7 @@ export default function EditorTarjetas({ doc, volver }) {
                 aria-label="Tarjeta anterior"
                 onClick={() => seleccionarTarjeta(cfg.tarjetas[indiceActual - 1].id)}
               >
-                ←
+                Anterior
               </button>
               <span className="nt-tarjeta-indicador">
                 {indiceActual + 1} / {cfg.tarjetas.length}
@@ -867,7 +1204,7 @@ export default function EditorTarjetas({ doc, volver }) {
                 aria-label="Tarjeta siguiente"
                 onClick={() => seleccionarTarjeta(cfg.tarjetas[indiceActual + 1].id)}
               >
-                →
+                Siguiente
               </button>
             </div>
 
@@ -893,9 +1230,68 @@ export default function EditorTarjetas({ doc, volver }) {
               ))}
             </div>
 
+            {/* Control de doble cara y conmutador Anverso / Reverso */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px solid #cbd5e1', padding: '2px 8px', borderRadius: '6px' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', userSelect: 'none' }} title="Habilita anverso y reverso con contenido propio para esta tarjeta">
+                <input
+                  type="checkbox"
+                  checked={!!tarjetaActual.dobleCara}
+                  onChange={(e) => alternarDobleCara(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                Doble cara
+              </label>
+
+              {tarjetaActual.dobleCara && (
+                <div style={{ display: 'inline-flex', gap: '2px', borderLeft: '1px solid #cbd5e1', paddingLeft: '6px' }}>
+                  <button
+                    type="button"
+                    className={`nt-btn ${caraActiva === 'anverso' ? 'nt-btn--primario' : ''}`}
+                    style={{ fontSize: '11px', padding: '2px 8px', height: '26px' }}
+                    onClick={() => cambiarCara('anverso')}
+                    title="Editar anverso (frente)"
+                  >
+                    Anverso
+                  </button>
+                  <button
+                    type="button"
+                    className={`nt-btn ${caraActiva === 'reverso' ? 'nt-btn--primario' : ''}`}
+                    style={{ fontSize: '11px', padding: '2px 8px', height: '26px' }}
+                    onClick={() => cambiarCara('reverso')}
+                    title="Editar reverso (dorso)"
+                  >
+                    Reverso
+                  </button>
+                </div>
+              )}
+            </div>
+
             <span className="nt-separador-v" />
 
-            <button className="nt-btn" onClick={agregarTarjeta} title="Crear nueva ficha vacía">+ Nueva</button>
+            <select
+              className="nt-select-diseno-tarjeta"
+              value={(caraActiva === 'reverso' ? tarjetaActual.disenoReverso : tarjetaActual.diseno) || 'en-blanco'}
+              onChange={(e) => aplicarDiseno(e.target.value)}
+              title={`Diseño predefinido de la ficha (${caraActiva === 'reverso' ? 'Reverso' : 'Anverso'})`}
+              aria-label="Diseño predefinido de la ficha"
+            >
+              {LISTA_DISENOS_TARJETA.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nombre}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className={`nt-btn ${mostrarNotasOrador ? 'nt-btn--activo' : ''}`}
+              onClick={() => setMostrarNotasOrador((v) => !v)}
+              title="Notas del orador (no se imprimen, visibles en modo estudio [N])"
+            >
+              Notas{tarjetaActual.notasOrador?.trim() ? ' •' : ''}
+            </button>
+
+            <button className="nt-btn" onClick={() => agregarTarjeta()} title="Crear nueva ficha vacía">+ Nueva</button>
             <button className="nt-btn" onClick={duplicarTarjeta} title="Duplicar ficha y contenido">Duplicar</button>
             <button
               className="nt-btn"
@@ -909,6 +1305,37 @@ export default function EditorTarjetas({ doc, volver }) {
           </div>
         </div>
       </div>
+
+      {/* Panel flotante de notas del orador */}
+      {mostrarNotasOrador && (
+        <div className="nt-panel-notas-orador" role="region" aria-label="Notas del orador">
+          <div className="nt-panel-notas-cab">
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>
+              Notas del orador ({tarjetaActual.titulo || `Tarjeta ${indiceActual + 1}`})
+            </span>
+            <button
+              type="button"
+              className="nt-ib"
+              style={{ width: '28px', height: '28px', fontSize: '14px' }}
+              onClick={() => setMostrarNotasOrador(false)}
+              title="Cerrar notas"
+              aria-label="Cerrar notas"
+            >
+              Cerrar
+            </button>
+          </div>
+          <div className="nt-texto-suave" style={{ fontSize: '11px', margin: 0 }}>
+            Visibles en modo estudio presionando [N] · No se imprimen ni exportan
+          </div>
+          <textarea
+            className="nt-campo nt-notas-orador-texto"
+            rows={4}
+            value={tarjetaActual.notasOrador || ''}
+            onChange={(e) => cambiarNotasOrador(e.target.value)}
+            placeholder="Escribe aquí notas y recordatorios para tu exposición o repaso…"
+          />
+        </div>
+      )}
 
       {/* Modal de Impresión */}
       {modalImprimir && (
@@ -928,8 +1355,11 @@ export default function EditorTarjetas({ doc, volver }) {
               </label>
 
               <label>
-                Proporción
-                <input className="nt-campo" value={medidas.nombre} disabled />
+                Caras a imprimir
+                <select className="nt-campo" value={imprimirCaras} onChange={(e) => setImprimirCaras(e.target.value)}>
+                  <option value="ambas">Anverso y reverso (en doble cara)</option>
+                  <option value="anverso">Solo anverso (cara principal)</option>
+                </select>
               </label>
             </div>
 
@@ -979,12 +1409,45 @@ export default function EditorTarjetas({ doc, volver }) {
 
             <div className="nt-acciones" style={{ marginTop: '12px' }}>
               <button type="button" className="nt-btn" onClick={() => setModalImprimir(false)}>Cancelar</button>
+              <button
+                type="button"
+                className="nt-btn"
+                onClick={() => {
+                  setModalImprimir(false);
+                  setModalExportarPdf(true);
+                }}
+              >
+                Exportar PDF directo
+              </button>
               <button type="button" className="nt-btn nt-btn--primario" onClick={ejecutarImpresion}>
                 Imprimir ahora
               </button>
             </div>
           </div>
         </Modal>
+      )}
+
+      {modalExportarImagen && (
+        <ModalExportarImagen
+          alCerrar={() => setModalExportarImagen(false)}
+          tipoFormato="tarjetas"
+          doc={doc}
+          motorRef={motorRef}
+          tarjetaActiva={cfg.tarjetaActiva}
+          medidasTarjeta={medidas}
+        />
+      )}
+
+      {modalExportarPdf && (
+        <ModalExportarPdf
+          alCerrar={() => setModalExportarPdf(false)}
+          tipoFormato="tarjetas"
+          doc={doc}
+          motorRef={motorRef}
+          tarjetaActiva={tarjetaActual}
+          tarjetas={cfg.tarjetas}
+          medidasTarjeta={medidas}
+        />
       )}
 
       {/* Modal de Confirmar Eliminación */}
@@ -1028,6 +1491,37 @@ export default function EditorTarjetas({ doc, volver }) {
           obtenerLista={obtenerLista}
           renglones={docRef.current.renglones}
           onSalir={() => setMostrarEstudio(false)}
+          documentoId={doc.id}
+          fechaHoyISO={doc.destinoInicial?.fechaSimulada || undefined}
+        />
+      )}
+
+      {datosPlantilla && (
+        <ModalGuardarPlantilla
+          doc={datosPlantilla.doc}
+          elementos={datosPlantilla.elementos}
+          alCerrar={() => setDatosPlantilla(null)}
+        />
+      )}
+
+      {modalEnlaces && (
+        <ModalEnlacesEntrantes
+          doc={docRef.current}
+          elementos={todosElementosRef.current || null}
+          alCerrar={() => setModalEnlaces(false)}
+          alAbrirNota={(idDestino) => {
+            window.dispatchEvent(new CustomEvent('nt:abrir-nota', { detail: { notaId: idDestino } }));
+          }}
+        />
+      )}
+
+      {modalMarcadores && (
+        <ModalMarcadores
+          formato="tarjetas"
+          doc={docRef.current}
+          tarjetas={cfg.tarjetas || []}
+          alSaltarATarjeta={(idx) => seleccionarTarjeta(idx + 1)}
+          alCerrar={() => setModalMarcadores(false)}
         />
       )}
 

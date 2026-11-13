@@ -1,6 +1,6 @@
 .nt-pantalla { display: flex; flex-direction: column; min-height: 100dvh; }
-.nt-cabecera { display: flex; align-items: center; gap: var(--nt-esp-3); padding: var(--nt-esp-3) var(--nt-esp-4); background: var(--nt-blanco); border-bottom: 1px solid var(--nt-linea); position: sticky; top: 0; z-index: 5; }
-.nt-logo { font-family: var(--nt-fuente-titulo); font-size: 26px; font-weight: 600; color: var(--nt-azul-oscuro); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: var(--nt-esp-3); padding: var(--nt-esp-3) var(--nt-esp-4); background: var(--nt-blanco); border-bottom: 1px solid var(--nt-linea); position: sticky; top: 0; z-index: 5; }
+.nt-logo { flex-shrink: 0; font-family: var(--nt-fuente-titulo); font-size: 26px; font-weight: 600; color: var(--nt-azul-oscuro); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nt-cabecera .nt-btn:first-child + .nt-logo { margin-left: 0; }
 .nt-biblioteca { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: var(--nt-esp-5) var(--nt-esp-5) var(--nt-esp-4); }
 .nt-barra { display: flex; gap: var(--nt-esp-3); flex-wrap: wrap; margin: var(--nt-esp-4) 0; }
@@ -12,7 +12,9 @@
 .nt-item { position: relative; background: var(--nt-blanco); border: 1.5px solid var(--nt-linea); border-radius: 14px; }
 .nt-item:hover, .nt-item:focus-within { border-color: var(--nt-azul); }
 .nt-item__abrir { display: flex; flex-direction: column; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 14px; overflow: hidden; }
-.nt-item__datos { display: flex; flex-direction: column; padding: 12px 52px 14px 14px; min-width: 0; }
+.nt-item__datos { display: flex; flex-direction: column; padding: 12px 14px 14px 14px; min-width: 0; }
+/* Los controles (Fijar y ⋯) ocupan la esquina inferior derecha: solo las líneas de abajo les dejan lugar. */
+.nt-item__datos > :not(strong) { padding-right: 112px; }
 .nt-item__datos strong { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nt-item__datos span { font-size: 13px; color: var(--nt-suave); }
 .nt-items--lista .nt-item__abrir { flex-direction: row; align-items: center; }
@@ -283,3 +285,56 @@
   box-shadow: 0 0 0 2px #fff inset;
 }
 
+
+/* Favorito de cada nota: junto al menú «⋯», sin superponerse */
+.nt-item__fav { position: absolute; right: calc(8px + var(--nt-toque)); bottom: 6px; min-width: 56px; height: var(--nt-toque); padding: 0 8px; border: 0; background: none; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1; cursor: pointer; color: var(--nt-suave); }
+.nt-item__fav:hover { background: var(--nt-azul-claro); }
+.nt-item__fav--on { color: #b45309; }
+.nt-items--lista .nt-item__fav { bottom: auto; top: 50%; transform: translateY(-50%); }
+
+/* Botones pequeños de las secciones (Todas / Favoritas / Recientes) */
+.nt-btn-sm { border: 1px solid var(--nt-linea); background: var(--nt-blanco); color: var(--nt-texto, #14192b); border-radius: 999px; cursor: pointer; font-family: inherit; min-height: 32px; }
+.nt-btn-sm:hover { background: var(--nt-azul-claro); }
+.nt-btn-sm--on { background: var(--nt-azul); border-color: var(--nt-azul); color: #fff; }
+.nt-btn-sm--on:hover { background: var(--nt-azul-oscuro); }
+
+/* Notas de actualización */
+.nt-novedades { max-height: min(62vh, 520px); overflow-y: auto; padding-right: 6px; }
+.nt-novedades__version + .nt-novedades__version { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--nt-linea); }
+.nt-novedades__cabecera { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nt-novedades__etiqueta { background: var(--nt-azul); color: #fff; font-weight: 700; font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+.nt-novedades__fecha { color: var(--nt-suave); font-size: 13px; }
+.nt-novedades__titulo { margin: 8px 0 2px; font-size: 20px; }
+.nt-novedades__resumen { margin: 0 0 8px; color: var(--nt-suave); font-size: 14px; }
+.nt-novedades__seccion h4 { margin: 14px 0 6px; font-size: 14px; color: var(--nt-azul-oscuro); text-transform: uppercase; letter-spacing: .04em; }
+.nt-novedades__seccion ul { margin: 0; padding-left: 20px; display: grid; gap: 5px; font-size: 14px; line-height: 1.45; }
+.nt-novedad-punto { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--nt-azul); color: #fff; font-size: 11px; font-weight: 700; vertical-align: middle; }
+
+/* Aviso de próximo examen: se distingue del aviso de repaso (blanco, borde de color) y prioriza materia y fecha. */
+.nt-examen-aviso { display: flex; align-items: center; gap: 14px 22px; flex-wrap: wrap; padding: 10px 16px; margin-bottom: 14px; background: var(--nt-blanco); border: 1px solid var(--nt-linea); border-left: 5px solid #f59e0b; border-radius: 10px; }
+.nt-examen-aviso--urgente { border-left-color: #dc2626; }
+.nt-examen-aviso__texto { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; line-height: 1.25; }
+.nt-examen-aviso__etiqueta { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--nt-suave); }
+.nt-examen-aviso__materia { font-size: 17px; font-weight: 700; color: var(--nt-tinta); overflow-wrap: anywhere; }
+.nt-examen-aviso__titulo { font-size: 13px; color: var(--nt-suave); }
+.nt-examen-aviso__fecha { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.nt-examen-aviso__fecha strong { font-size: 17px; font-weight: 700; color: var(--nt-tinta); font-variant-numeric: tabular-nums; }
+.nt-examen-aviso__fecha span { font-size: 12px; font-weight: 700; color: #b45309; }
+.nt-examen-aviso--urgente .nt-examen-aviso__fecha span { color: #b91c1c; }
+
+/* Lista del calendario de exámenes */
+.nt-examen__principal { display: flex; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; }
+.nt-examen__materia { font-size: 16px; font-weight: 700; color: var(--nt-tinta); }
+.nt-examen__fecha { font-size: 15px; font-weight: 700; color: var(--nt-azul-oscuro); font-variant-numeric: tabular-nums; }
+.nt-examen__detalle { font-size: 12.5px; color: var(--nt-suave); margin-top: 2px; }
+.nt-examen__cuenta { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; align-self: center; }
+
+/* Etiquetas de cada documento (repaso, carpeta, etiquetas, archivo): nunca debajo de «Fijar» y «⋯» */
+.nt-item__datos > .nt-badge-srs,
+.nt-item__datos > .nt-badge-carpeta,
+.nt-item__datos > .nt-badge-etiqueta,
+.nt-item__datos > .nt-etiquetas-lista { align-self: flex-start; max-width: 100%; box-sizing: border-box; }
+.nt-items:not(.nt-items--lista) .nt-item__datos--con-pie { padding-bottom: calc(var(--nt-toque) + 12px); }
+.nt-items:not(.nt-items--lista) .nt-item__datos--con-pie > :not(strong) { padding-right: 0; }
+.nt-items--lista .nt-item__datos { padding-right: 124px; }
+.nt-items--lista .nt-item__datos > :not(strong) { padding-right: 0; }

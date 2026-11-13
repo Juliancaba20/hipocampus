@@ -1,6 +1,6 @@
 // Gestión de copias de seguridad, recordatorios periódicos y File System Access API (Etapa 12).
 
-import { obtenerAjuste, guardarAjuste, estadoAlmacenamiento, listarDocumentos, listarElementos, listarCarpetas } from '../almacen/index.js';
+import { obtenerAjuste, guardarAjuste, estadoAlmacenamiento, listarDocumentos, listarElementos, listarCarpetas, listarExamenes } from '../almacen/index.js';
 import { empaquetarColeccion } from './formato.js';
 import { prepararRecursosDeElementos } from './exportar.js';
 
@@ -147,16 +147,32 @@ export async function realizarCopiaEnCarpeta(directorioHandle) {
 
   for (const doc of documentos) {
     const elementos = await listarElementos(doc.id);
-    const recursos = await prepararRecursosDeElementos(elementos);
-    items.push({ documento: doc, elementos, recursos });
+    const recursos = await prepararRecursosDeElementos(elementos, doc);
+    let repasos = [];
+    if (doc.formato === 'tarjetas') {
+      try {
+        const { listarEstadosRepasoDocumento } = await import('../almacen/repeticion.js');
+        repasos = await listarEstadosRepasoDocumento(doc.id);
+      } catch {
+        repasos = [];
+      }
+    }
+    items.push({ documento: doc, elementos, recursos, repasos });
   }
 
   const carpetas = await listarCarpetas();
-  const bytes = await empaquetarColeccion(items, carpetas);
+  let plantillas = [];
+  try {
+    const { listarPlantillasPropias } = await import('../plantillas/index.js');
+    plantillas = await listarPlantillasPropias();
+  } catch {}
+  let examenes = [];
+  try { examenes = await listarExamenes(); } catch { /* sin exámenes */ }
+  const bytes = await empaquetarColeccion(items, carpetas, plantillas, examenes);
   const fechaStr = new Date().toISOString().slice(0, 10);
   const nombre = `Anotomia_Copia_${fechaStr}.anotomia-respaldo`;
 
   await escribirArchivoEnCarpeta(directorioHandle, nombre, bytes);
   await registrarCopiaRealizada();
-  return { nombreArchivo: nombre, cantidad: items.length };
+  return { nombreArchivo: nombre, cantidad: items.length, plantillas: plantillas.length };
 }

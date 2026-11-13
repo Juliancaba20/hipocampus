@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  crearDocumento, guardarDocumento, obtenerDocumento, listarDocumentos,
+  crearDocumento, guardarDocumento, obtenerDocumento,
   listarCarpetas, guardarCarpeta, eliminarCarpeta, moverDocumentoACarpeta,
   asignarEtiquetasDocumento, COLORES_CARPETA,
 } from '../src/almacen/index.js';

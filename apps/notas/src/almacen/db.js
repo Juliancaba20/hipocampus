@@ -4,7 +4,7 @@
 
 // Nombre interno de la base: se mantiene aunque la app se llame Anotomía, para no perder los datos ya guardados.
 const NOMBRE_BD = 'notas-app';
-const VERSION_BD = 1;
+const VERSION_BD = 3;
 let promesaBD = null;
 
 export function abrirBD() {
@@ -17,12 +17,31 @@ export function abrirBD() {
     const pedido = indexedDB.open(NOMBRE_BD, VERSION_BD);
     pedido.onupgradeneeded = () => {
       const bd = pedido.result;
-      const docs = bd.createObjectStore('documentos', { keyPath: 'id' });
-      docs.createIndex('modificado', 'modificado');
-      const els = bd.createObjectStore('elementos', { keyPath: 'id' });
-      els.createIndex('documentoId', 'documentoId');
-      bd.createObjectStore('blobs', { keyPath: 'id' }); // imágenes (Etapa 11)
-      bd.createObjectStore('ajustes', { keyPath: 'clave' });
+      if (!bd.objectStoreNames.contains('documentos')) {
+        const docs = bd.createObjectStore('documentos', { keyPath: 'id' });
+        docs.createIndex('modificado', 'modificado');
+      }
+      if (!bd.objectStoreNames.contains('elementos')) {
+        const els = bd.createObjectStore('elementos', { keyPath: 'id' });
+        els.createIndex('documentoId', 'documentoId');
+      }
+      if (!bd.objectStoreNames.contains('blobs')) {
+        bd.createObjectStore('blobs', { keyPath: 'id' }); // imágenes (Etapa 11)
+      }
+      if (!bd.objectStoreNames.contains('ajustes')) {
+        bd.createObjectStore('ajustes', { keyPath: 'clave' });
+      }
+      if (!bd.objectStoreNames.contains('indice_busqueda')) {
+        const idx = bd.createObjectStore('indice_busqueda', { keyPath: 'documentoId' });
+        idx.createIndex('enPapelera', 'enPapelera');
+        idx.createIndex('modificado', 'modificado');
+      }
+      if (!bd.objectStoreNames.contains('repeticion')) {
+        const rep = bd.createObjectStore('repeticion', { keyPath: 'id' });
+        rep.createIndex('documentoId', 'documentoId');
+        rep.createIndex('tarjetaId', 'tarjetaId');
+        rep.createIndex('fechaRepaso', 'fechaRepaso');
+      }
     };
     pedido.onsuccess = () => {
       const bd = pedido.result;

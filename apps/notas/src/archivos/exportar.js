@@ -1,7 +1,7 @@
 // Exportación de documentos individuales y colecciones completas (Etapa 12).
 // Admite descarga directa y hoja de compartir del sistema (navigator.share) en iPads y móviles.
 
-import { listarElementos, obtenerBlob, listarDocumentos, listarCarpetas } from '../almacen/index.js';
+import { listarElementos, obtenerBlob, listarDocumentos, listarCarpetas, listarExamenes } from '../almacen/index.js';
 import { MIME_TIPO_NOTA, arrayBufferABase64, empaquetarDocumento, empaquetarColeccion } from './formato.js';
 import { esProgramaEscritorio, esProgramaDeComputadora } from '../pwa/escritorio.js';
 
@@ -33,6 +33,15 @@ export function descargarBlob(blob, nombreArchivo) {
   }, 1000);
 }
 
+// En el programa (Windows, Mac, Linux o Android) los archivos que no son .nota (PDF, imágenes) se guardan con la ventana
+// «Guardar como» del sistema: la descarga por enlace y la hoja de compartir no están verificadas allí.
+// Devuelve { ruta, nombre } o null si la persona cerró la ventana sin elegir dónde guardar.
+export async function guardarCopiaEnPrograma(blob, nombreArchivo) {
+  const { discoDelPrograma } = await import('./disco.js');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return discoDelPrograma().guardarCopia(bytes, nombreArchivo);
+}
+
 // Intenta compartir un archivo mediante navigator.share (hoja nativa en iOS/iPad y Android).
 // Devuelve 'compartido', 'cancelado' (la persona cerró la hoja sin guardar nada) o false (no disponible: usar descarga).
 export async function intentarCompartirArchivo(blob, nombreArchivo, titulo) {
@@ -40,7 +49,8 @@ export async function intentarCompartirArchivo(blob, nombreArchivo, titulo) {
   if (esProgramaEscritorio()) return false;
   if (typeof navigator !== 'undefined' && navigator.canShare && typeof File !== 'undefined') {
     try {
-      const archivo = new File([blob], nombreArchivo, { type: MIME_TIPO_NOTA });
+      const tipo = blob.type || MIME_TIPO_NOTA;
+      const archivo = new File([blob], nombreArchivo, { type: tipo });
       if (navigator.canShare({ files: [archivo] })) {
         await navigator.share({
           files: [archivo],
@@ -56,10 +66,17 @@ export async function intentarCompartirArchivo(blob, nombreArchivo, titulo) {
   return false;
 }
 
-// Prepara los recursos (blobs a base64) de una lista de elementos
-export async function prepararRecursosDeElementos(elementos) {
+// Prepara los recursos (blobs a base64) de una lista de elementos y del documento (ej. PDF)
+export async function prepararRecursosDeElementos(elementos, doc = null) {
   const imagenes = elementos.filter((e) => e.tipo === 'imagen' && e.datos?.blobId);
   const blobIdsUnicos = [...new Set(imagenes.map((e) => e.datos.blobId))];
+
+  // Si el documento tiene un archivo PDF de fondo, se incluye para exportarlo en el .nota
+  const pdfBlobId = doc?.pdfBlobId || doc?.config?.pdfBlobId;
+  if (pdfBlobId && !blobIdsUnicos.includes(pdfBlobId)) {
+    blobIdsUnicos.push(pdfBlobId);
+  }
+
   const recursos = [];
 
   for (const bid of blobIdsUnicos) {
@@ -78,8 +95,8 @@ export async function prepararRecursosDeElementos(elementos) {
     if (buffer) {
       recursos.push({
         id: reg.id,
-        tipo: reg.tipo || 'image/png',
-        nombre: reg.nombre || 'imagen',
+        tipo: reg.tipo || (bid === pdfBlobId ? 'application/pdf' : 'image/png'),
+        nombre: reg.nombre || (bid === pdfBlobId ? 'documento.pdf' : 'imagen'),
         tamano: reg.tamano || buffer.byteLength,
         base64: arrayBufferABase64(buffer),
       });
@@ -99,8 +116,17 @@ export async function empaquetarDesdeAlmacen(doc, { elementos: elementosProvisto
       elementos = [];
     }
   }
-  const recursos = await prepararRecursosDeElementos(elementos);
-  return empaquetarDocumento(doc, elementos, recursos);
+  const recursos = await prepararRecursosDeElementos(elementos, doc);
+  let repasos = [];
+  if (doc.formato === 'tarjetas') {
+    try {
+      const { listarEstadosRepasoDocumento } = await import('../almacen/repeticion.js');
+      repasos = await listarEstadosRepasoDocumento(doc.id);
+    } catch {
+      repasos = [];
+    }
+  }
+  return empaquetarDocumento(doc, elementos, recursos, repasos);
 }
 
 // Exporta un único documento en formato .nota.
@@ -119,13 +145,19 @@ export async function exportarDocumento(doc, { elementos: elementosProvistos = n
   }
 
   const blob = new Blob([bytes], { type: MIME_TIPO_NOTA });
+
+  const tamanoMb = (blob.size / (1024 * 1024)).toFixed(1);
+  const advertenciaTamano = blob.size > 50 * 1024 * 1024
+    ? `Atención: El archivo exportado pesa ${tamanoMb} MB.`
+    : null;
+
   if (compartir) {
     const compartido = await intentarCompartirArchivo(blob, nombreArchivo, doc.titulo);
-    if (compartido) return { metodo: compartido, nombreArchivo };
+    if (compartido) return { metodo: compartido, nombreArchivo, tamanoMb, advertenciaTamano };
   }
 
   descargarBlob(blob, nombreArchivo);
-  return { metodo: 'descargado', nombreArchivo };
+  return { metodo: 'descargado', nombreArchivo, tamanoMb, advertenciaTamano };
 }
 
 // Exporta todos los documentos activos en un único archivo de copia de respaldo
@@ -135,12 +167,28 @@ export async function exportarTodasLasNotas({ compartir = false } = {}) {
 
   for (const doc of documentos) {
     const elementos = await listarElementos(doc.id);
-    const recursos = await prepararRecursosDeElementos(elementos);
-    items.push({ documento: doc, elementos, recursos });
+    const recursos = await prepararRecursosDeElementos(elementos, doc);
+    let repasos = [];
+    if (doc.formato === 'tarjetas') {
+      try {
+        const { listarEstadosRepasoDocumento } = await import('../almacen/repeticion.js');
+        repasos = await listarEstadosRepasoDocumento(doc.id);
+      } catch {
+        repasos = [];
+      }
+    }
+    items.push({ documento: doc, elementos, recursos, repasos });
   }
 
   const carpetas = await listarCarpetas();
-  const bytes = await empaquetarColeccion(items, carpetas);
+  let plantillas = [];
+  try {
+    const { listarPlantillasPropias } = await import('../plantillas/index.js');
+    plantillas = await listarPlantillasPropias();
+  } catch {}
+  let examenes = [];
+  try { examenes = await listarExamenes(); } catch { /* sin exámenes */ }
+  const bytes = await empaquetarColeccion(items, carpetas, plantillas, examenes);
   const fechaStr = new Date().toISOString().slice(0, 10);
   const nombreArchivo = `Anotomia_Copia_Completa_${fechaStr}.anotomia-respaldo`;
 
@@ -153,9 +201,14 @@ export async function exportarTodasLasNotas({ compartir = false } = {}) {
 
   const blob = new Blob([bytes], { type: MIME_TIPO_NOTA });
 
+  const tamanoMb = (blob.size / (1024 * 1024)).toFixed(1);
+  const advertenciaTamano = blob.size > 50 * 1024 * 1024
+    ? `Atención: La copia de seguridad pesa ${tamanoMb} MB.`
+    : null;
+
   if (compartir) {
     const compartido = await intentarCompartirArchivo(blob, nombreArchivo, 'Copia de seguridad de Anotomía');
-    if (compartido) return { metodo: compartido, nombreArchivo, cantidad: items.length };
+    if (compartido) return { metodo: compartido, nombreArchivo, cantidad: items.length, tamanoMb, advertenciaTamano };
   }
 
   descargarBlob(blob, nombreArchivo);

@@ -332,7 +332,7 @@ test('la configuración importada se sanea (cámara, páginas, tarjetas)', () =>
   base.documento.formato = 'paginas';
   const p = sanearDocumentoImportado(base);
   assert.equal(p.documento.config.camara, undefined);
-  assert.equal(p.documento.config.cantidadPaginas, 500);
+  assert.equal(p.documento.config.cantidadPaginas, 2000);
   assert.equal(Object.prototype.x, undefined);
   base.documento.formato = 'tarjetas';
   const t = sanearDocumentoImportado(base);

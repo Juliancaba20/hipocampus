@@ -103,7 +103,7 @@ export default function SelectorSimbolos({ motorRef }) {
         <div ref={panel} data-nt-barra-panel className="nt-simbolos-panel" role="dialog" aria-label="Símbolos científicos" style={posicion}>
           <div className="nt-simbolos-cab">
             <label className="nt-simbolos-busqueda">
-              <span className="nt-simbolos-lupa" aria-hidden="true">⌕</span>
+              
               <input
                 autoFocus
                 type="search"
@@ -115,7 +115,7 @@ export default function SelectorSimbolos({ motorRef }) {
             </label>
             <button
               type="button"
-              className="nt-ib nt-simbolos-cerrar"
+              className="nt-ib nt-ib--cerrar nt-simbolos-cerrar"
               aria-label="Cerrar panel de símbolos"
               title="Cerrar (Esc)"
               onMouseDown={sinFoco}

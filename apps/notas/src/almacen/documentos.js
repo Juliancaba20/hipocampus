@@ -1,5 +1,7 @@
 import { pedido, transaccion } from './db.js';
 import { nuevoId } from './modelo.js';
+import { programarActualizacionIndice } from './busqueda.js';
+import { remaparAnclajesConectores } from '../lienzo/conectores.js';
 
 // tocarFecha: false guarda sin cambiar la fecha de modificación (por ejemplo, al mover solo la cámara).
 // Cuando se guardó con cambios avisa con el evento «anotomia:documento-guardado»: el programa de computadora lo usa
@@ -9,6 +11,7 @@ export const EVENTO_DOCUMENTO_GUARDADO = 'anotomia:documento-guardado';
 export function guardarDocumento(doc, { tocarFecha = true } = {}) {
   const actualizado = tocarFecha ? { ...doc, modificado: Date.now() } : { ...doc };
   return transaccion(['documentos'], 'readwrite', (tx) => pedido(tx.objectStore('documentos').put(actualizado))).then(() => {
+    programarActualizacionIndice(actualizado.id, { doc: actualizado });
     if (tocarFecha && typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
       window.dispatchEvent(new window.CustomEvent(EVENTO_DOCUMENTO_GUARDADO, { detail: { id: actualizado.id } }));
     }
@@ -46,31 +49,48 @@ export async function listarDocumentos({ papelera = false, orden = 'fecha' } = {
   return lista;
 }
 
-export function enviarAPapelera(doc) {
+export async function enviarAPapelera(docOId) {
+  const doc = typeof docOId === 'string' ? await obtenerDocumento(docOId) : docOId;
+  if (!doc) return null;
   return guardarDocumento({ ...doc, papelera: Date.now() });
 }
 
-export function restaurarDePapelera(doc) {
+export async function restaurarDePapelera(docOId) {
+  const doc = typeof docOId === 'string' ? await obtenerDocumento(docOId) : docOId;
+  if (!doc) return null;
   return guardarDocumento({ ...doc, papelera: null });
 }
 
 // Borra el documento, sus elementos y los blobs que queden sin referencias en una sola transacción.
 // Optimizado para no cargar todos los elementos de la base completa en memoria.
 export function borrarDocumentoDefinitivo(id) {
-  return transaccion(['documentos', 'elementos', 'blobs'], 'readwrite', async (tx) => {
+  return transaccion(['documentos', 'elementos', 'blobs', 'indice_busqueda', 'repeticion'], 'readwrite', async (tx) => {
+    const docStore = tx.objectStore('documentos');
+    const docAEliminar = await pedido(docStore.get(id));
     const els = tx.objectStore('elementos');
     const claves = await pedido(els.index('documentoId').getAllKeys(id));
     const elementosDoc = await pedido(els.index('documentoId').getAll(id));
     claves.forEach((k) => els.delete(k));
-    tx.objectStore('documentos').delete(id);
+    docStore.delete(id);
+    if (tx.db.objectStoreNames.contains('indice_busqueda')) {
+      tx.objectStore('indice_busqueda').delete(id);
+    }
+    if (tx.db.objectStoreNames.contains('repeticion')) {
+      const repStore = tx.objectStore('repeticion');
+      const repKeys = await pedido(repStore.index('documentoId').getAllKeys(id));
+      repKeys.forEach((k) => repStore.delete(k));
+    }
 
-    // Identificar únicamente los blobs del documento eliminado
+    // Identificar únicamente los blobs del documento eliminado (imágenes y PDF de fondo)
     const blobsCandidatos = new Set(
       elementosDoc.filter((el) => el.tipo === 'imagen' && el.datos?.blobId).map((el) => el.datos.blobId)
     );
+    if (docAEliminar?.pdfBlobId) blobsCandidatos.add(docAEliminar.pdfBlobId);
+    if (docAEliminar?.config?.pdfBlobId) blobsCandidatos.add(docAEliminar.config.pdfBlobId);
+
     if (!blobsCandidatos.size) return;
 
-    // Solo verificamos si esos blobs candidatos específicos están referenciados por otros elementos
+    // Verificar si esos blobs candidatos específicos están referenciados por otros elementos
     const cursor = els.openCursor();
     const usadosPorOtros = new Set();
     await new Promise((resolve, reject) => {
@@ -84,6 +104,22 @@ export function borrarDocumentoDefinitivo(id) {
         cur.continue();
       };
       cursor.onerror = () => reject(cursor.error);
+    });
+
+    // Verificar si el PDF está referenciado por otros documentos (ej. copias duplicadas)
+    const cursorDocs = docStore.openCursor();
+    await new Promise((resolve, reject) => {
+      cursorDocs.onsuccess = (e) => {
+        const cur = e.target.result;
+        if (!cur) { resolve(); return; }
+        const d = cur.value;
+        if (d.id !== id) {
+          if (d.pdfBlobId && blobsCandidatos.has(d.pdfBlobId)) usadosPorOtros.add(d.pdfBlobId);
+          if (d.config?.pdfBlobId && blobsCandidatos.has(d.config.pdfBlobId)) usadosPorOtros.add(d.config.pdfBlobId);
+        }
+        cur.continue();
+      };
+      cursorDocs.onerror = () => reject(cursorDocs.error);
     });
 
     const storeBlobs = tx.objectStore('blobs');
@@ -106,8 +142,12 @@ export function duplicarDocumento(id, titulo) {
     const copia = { ...structuredClone(original), id: nuevoId(), titulo: titulo || `Copia de ${original.titulo}`, creado: ahora, modificado: ahora, papelera: null };
     const els = tx.objectStore('elementos');
     const originales = await pedido(els.index('documentoId').getAll(id));
-    originales.forEach((e) => els.put({ ...structuredClone(e), id: nuevoId(), documentoId: copia.id, creado: ahora, modificado: ahora }));
+    const mapaIds = new Map(originales.map((e) => [e.id, nuevoId()]));
+    const clonados = originales.map((e) => ({ ...structuredClone(e), id: mapaIds.get(e.id), documentoId: copia.id, modificado: ahora })); // se conserva `creado`: desempata el apilado de elementos con el mismo z
+    // Los conectores de la copia deben seguir a las formas de la copia, no a las del original
+    remaparAnclajesConectores(clonados, mapaIds).forEach((e) => els.put(e));
     tx.objectStore('documentos').put(copia);
+    programarActualizacionIndice(copia.id);
     return copia;
   });
 }

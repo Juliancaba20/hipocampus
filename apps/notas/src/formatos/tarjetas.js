@@ -1,11 +1,21 @@
 // Formato Tarjetas (Etapa 9): fichas de estudio para una idea por tarjeta.
 // Manejo de tamaños, proporciones, lista de tarjetas y contenedor de elementos.
-import { nuevoId } from '../almacen/modelo.js';
+import { nuevoId, TIPOS_ELEMENTO, crearElemento } from '../almacen/modelo.js';
 
 // Escala física: 5 unidades del lienzo = 1 mm de papel. Así A6 y A5 miden lo que dicen al imprimir.
 export const PX_POR_MM = 5;
 export const MM_MIN = 40;
 export const MM_MAX = 400;
+
+export const DISENOS_TARJETA = {
+  'en-blanco': { id: 'en-blanco', nombre: 'En blanco', descripcion: 'Lienzo libre sin guías de diseño' },
+  'titulo': { id: 'titulo', nombre: 'Título', descripcion: 'Título central destacado' },
+  'titulo-contenido': { id: 'titulo-contenido', nombre: 'Título y contenido', descripcion: 'Título superior y cuerpo de texto' },
+  'dos-columnas': { id: 'dos-columnas', nombre: 'Dos columnas', descripcion: 'Título y dos columnas comparativas' },
+  'imagen-texto': { id: 'imagen-texto', nombre: 'Imagen con texto', descripcion: 'Espacio para imagen a la izquierda y texto a la derecha' },
+};
+
+export const LISTA_DISENOS_TARJETA = Object.values(DISENOS_TARJETA);
 
 const enMm = (ancho, alto, nombre) => ({ ancho, alto, nombre, anchoMm: ancho / PX_POR_MM, altoMm: alto / PX_POR_MM });
 
@@ -42,8 +52,14 @@ export function normalizarTarjetasConfig(config = {}) {
     ? config.tarjetas.map((t, idx) => ({
       id: t.id || nuevoId(),
       titulo: typeof t.titulo === 'string' ? t.titulo : `Tarjeta ${idx + 1}`,
+      diseno: DISENOS_TARJETA[t.diseno] ? t.diseno : 'en-blanco',
+      disenoReverso: DISENOS_TARJETA[t.disenoReverso] ? t.disenoReverso : 'en-blanco',
+      notasOrador: typeof t.notasOrador === 'string' ? t.notasOrador : '',
+      fondo: t.fondo || null,
+      fondoReverso: t.fondoReverso || null,
+      dobleCara: !!t.dobleCara,
     }))
-    : [{ id: nuevoId(), titulo: 'Tarjeta 1' }];
+    : [{ id: nuevoId(), titulo: 'Tarjeta 1', diseno: 'en-blanco', disenoReverso: 'en-blanco', notasOrador: '', fondo: null, fondoReverso: null, dobleCara: false }];
 
   const activa = config.tarjetaActiva && tarjetas.some((t) => t.id === config.tarjetaActiva)
     ? config.tarjetaActiva
@@ -144,13 +160,29 @@ export function tamanoImpreso(med, porHoja = 1) {
   return { anchoMm: med.anchoMm * escala, altoMm: med.altoMm * escala, escala };
 }
 
-// Filtra los elementos correspondientes a una tarjeta específica
-export function elementosDeTarjeta(elementos, tarjetaId, esPrimeraTarjeta = false) {
+// Filtra los elementos correspondientes a una tarjeta específica y opcionalmente a su cara ('anverso' | 'reverso')
+export function elementosDeTarjeta(elementos, tarjetaId, caraOPrimera = null, esPrimeraTarjeta = false) {
+  const cara = typeof caraOPrimera === 'string' ? caraOPrimera : null;
+  const esPrimera = typeof caraOPrimera === 'boolean' ? caraOPrimera : !!esPrimeraTarjeta;
   return elementos.filter((el) => {
-    if (el.contenedor === tarjetaId) return true;
-    if (esPrimeraTarjeta && (!el.contenedor || el.contenedor === 'null')) return true;
-    return false;
+    const coincide = el.contenedor === tarjetaId || (esPrimera && (!el.contenedor || el.contenedor === 'null'));
+    if (!coincide) return false;
+    if (cara === 'anverso') return !el.cara || el.cara === 'anverso';
+    if (cara === 'reverso') return el.cara === 'reverso';
+    return true;
   });
+}
+
+// Reubica un elemento de tarjeta que quedó fuera de sus límites. Devuelve el mismo objeto si ya está dentro.
+export function reubicarEnTarjeta(el, medidas) {
+  const fueraY = el.y + (el.alto || 0) < 0 || el.y > medidas.alto;
+  const fueraX = el.x + (el.ancho || 0) < 0 || el.x > medidas.ancho;
+  if (!fueraY && !fueraX) return el;
+  return {
+    ...el,
+    x: Math.min(Math.max(0, el.x), Math.max(0, medidas.ancho - (el.ancho || 0))),
+    y: Math.min(Math.max(0, el.y), Math.max(0, medidas.alto - (el.alto || 0))),
+  };
 }
 
 // Documentos antiguos: los elementos que no pertenecen a ninguna tarjeta pasan a la primera.
@@ -174,7 +206,215 @@ export function duplicarElementosTarjeta(elementos, origenId, destinoId, nuevoId
       ...el,
       id: nuevoIdFn(),
       contenedor: destinoId,
+      cara: el.cara || 'anverso',
       creado: Date.now(),
       modificado: Date.now(),
     }));
+}
+
+/**
+ * Aplica o cambia el diseño predefinido de una tarjeta sin perder su contenido.
+ * Reorganiza armónicamente los textos existentes en la estructura del diseño
+ * y conserva intactos todos los dibujos, trazos, figuras e imágenes.
+ */
+export function cambiarDisenoTarjeta(elementos, tarjetaId, nuevoDiseno, med = { ancho: 1120, alto: 630 }, documentoId = '', cara = 'anverso') {
+  const caraValida = cara === 'reverso' ? 'reverso' : 'anverso';
+  const deTarjeta = elementos.filter((e) => e.contenedor === tarjetaId && (caraValida === 'reverso' ? e.cara === 'reverso' : (!e.cara || e.cara === 'anverso')));
+  const textos = deTarjeta.filter((e) => e.tipo === TIPOS_ELEMENTO.TEXTO);
+  const imagenes = deTarjeta.filter((e) => e.tipo === TIPOS_ELEMENTO.IMAGEN);
+  const cambios = [];
+
+  if (nuevoDiseno === 'en-blanco') {
+    return { cambios };
+  }
+
+  const margenH = Math.round(med.ancho * 0.08);
+  const anchoUtil = med.ancho - margenH * 2;
+  const ahora = Date.now();
+  let zMax = elementos.reduce((m, e) => Math.max(m, e.z || 0), 0);
+
+  if (nuevoDiseno === 'titulo') {
+    if (textos.length > 0) {
+      const primerTexto = textos[0];
+      const actualizado = {
+        ...primerTexto,
+        x: margenH,
+        y: Math.round(med.alto * 0.36),
+        ancho: anchoUtil,
+        modificado: ahora,
+        datos: {
+          ...primerTexto.datos,
+          tamano: Math.max(28, primerTexto.datos?.tamano || 32),
+        },
+      };
+      cambios.push({ id: primerTexto.id, antes: primerTexto, despues: actualizado });
+    } else {
+      const nuevo = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH,
+        y: Math.round(med.alto * 0.36),
+        ancho: anchoUtil,
+        alto: 80,
+        z: ++zMax,
+        contenedor: tarjetaId,
+        cara: caraValida,
+        datos: {
+          bloques: [{ t: 'Título de la ficha', e: 'titulo' }],
+          tamano: 32,
+          color: '#14192b',
+        },
+      });
+      cambios.push({ id: nuevo.id, antes: null, despues: nuevo });
+    }
+  } else if (nuevoDiseno === 'titulo-contenido') {
+    const yTitulo = Math.round(med.alto * 0.08);
+    const altoTitulo = Math.round(med.alto * 0.16);
+    const yCuerpo = yTitulo + altoTitulo + 20;
+    const altoCuerpo = med.alto - yCuerpo - Math.round(med.alto * 0.08);
+
+    if (textos.length >= 2) {
+      const t1 = textos[0];
+      const t2 = textos[1];
+      const act1 = { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 28 } };
+      const act2 = { ...t2, x: margenH, y: yCuerpo, ancho: anchoUtil, alto: Math.max(t2.alto, altoCuerpo), modificado: ahora, datos: { ...t2.datos, tamano: 18 } };
+      cambios.push({ id: t1.id, antes: t1, despues: act1 });
+      cambios.push({ id: t2.id, antes: t2, despues: act2 });
+    } else if (textos.length === 1) {
+      const t1 = textos[0];
+      const act1 = { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 28 } };
+      cambios.push({ id: t1.id, antes: t1, despues: act1 });
+      const nuevoCuerpo = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH,
+        y: yCuerpo,
+        ancho: anchoUtil,
+        alto: altoCuerpo,
+        z: ++zMax,
+        contenedor: tarjetaId,
+        cara: caraValida,
+        datos: {
+          bloques: [{ t: 'Agregue aquí los conceptos, definiciones o puntos clave…', e: 'normal' }],
+          tamano: 18,
+          color: '#334155',
+        },
+      });
+      cambios.push({ id: nuevoCuerpo.id, antes: null, despues: nuevoCuerpo });
+    } else {
+      const nuevoTit = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH,
+        y: yTitulo,
+        ancho: anchoUtil,
+        alto: altoTitulo,
+        z: ++zMax,
+        contenedor: tarjetaId,
+        cara: caraValida,
+        datos: { bloques: [{ t: 'Título principal', e: 'titulo' }], tamano: 28, color: '#14192b' },
+      });
+      const nuevoCuerpo = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH,
+        y: yCuerpo,
+        ancho: anchoUtil,
+        alto: altoCuerpo,
+        z: ++zMax,
+        contenedor: tarjetaId,
+        cara: caraValida,
+        datos: { bloques: [{ t: 'Desarrollo de la idea o notas de estudio…', e: 'normal' }], tamano: 18, color: '#334155' },
+      });
+      cambios.push({ id: nuevoTit.id, antes: null, despues: nuevoTit });
+      cambios.push({ id: nuevoCuerpo.id, antes: null, despues: nuevoCuerpo });
+    }
+  } else if (nuevoDiseno === 'dos-columnas') {
+    const yTitulo = Math.round(med.alto * 0.08);
+    const altoTitulo = Math.round(med.alto * 0.14);
+    const yCols = yTitulo + altoTitulo + 20;
+    const altoCols = med.alto - yCols - Math.round(med.alto * 0.08);
+    const anchoCol = Math.round((anchoUtil - 30) / 2);
+    const xCol1 = margenH;
+    const xCol2 = margenH + anchoCol + 30;
+
+    if (textos.length >= 3) {
+      const [t1, t2, t3] = textos;
+      cambios.push({ id: t1.id, antes: t1, despues: { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 26 } } });
+      cambios.push({ id: t2.id, antes: t2, despues: { ...t2, x: xCol1, y: yCols, ancho: anchoCol, modificado: ahora, datos: { ...t2.datos, tamano: 17 } } });
+      cambios.push({ id: t3.id, antes: t3, despues: { ...t3, x: xCol2, y: yCols, ancho: anchoCol, modificado: ahora, datos: { ...t3.datos, tamano: 17 } } });
+    } else if (textos.length === 2) {
+      const [t1, t2] = textos;
+      cambios.push({ id: t1.id, antes: t1, despues: { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 26 } } });
+      cambios.push({ id: t2.id, antes: t2, despues: { ...t2, x: xCol1, y: yCols, ancho: anchoCol, modificado: ahora, datos: { ...t2.datos, tamano: 17 } } });
+      const nuevoCol2 = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xCol2, y: yCols, ancho: anchoCol, alto: altoCols, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Segunda columna…', e: 'normal' }], tamano: 17, color: '#334155' },
+      });
+      cambios.push({ id: nuevoCol2.id, antes: null, despues: nuevoCol2 });
+    } else if (textos.length === 1) {
+      const [t1] = textos;
+      cambios.push({ id: t1.id, antes: t1, despues: { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 26 } } });
+      const col1 = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xCol1, y: yCols, ancho: anchoCol, alto: altoCols, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Columna 1: Concepto A…', e: 'normal' }], tamano: 17, color: '#334155' },
+      });
+      const col2 = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xCol2, y: yCols, ancho: anchoCol, alto: altoCols, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Columna 2: Concepto B…', e: 'normal' }], tamano: 17, color: '#334155' },
+      });
+      cambios.push({ id: col1.id, antes: null, despues: col1 });
+      cambios.push({ id: col2.id, antes: null, despues: col2 });
+    } else {
+      const tit = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH, y: yTitulo, ancho: anchoUtil, alto: altoTitulo, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Comparación / Dos columnas', e: 'titulo' }], tamano: 26, color: '#14192b' },
+      });
+      const col1 = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xCol1, y: yCols, ancho: anchoCol, alto: altoCols, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Columna 1: Concepto A…', e: 'normal' }], tamano: 17, color: '#334155' },
+      });
+      const col2 = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xCol2, y: yCols, ancho: anchoCol, alto: altoCols, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Columna 2: Concepto B…', e: 'normal' }], tamano: 17, color: '#334155' },
+      });
+      cambios.push({ id: tit.id, antes: null, despues: tit });
+      cambios.push({ id: col1.id, antes: null, despues: col1 });
+      cambios.push({ id: col2.id, antes: null, despues: col2 });
+    }
+  } else if (nuevoDiseno === 'imagen-texto') {
+    const yTitulo = Math.round(med.alto * 0.08);
+    const altoTitulo = Math.round(med.alto * 0.14);
+    const yZona = yTitulo + altoTitulo + 20;
+    const altoZona = med.alto - yZona - Math.round(med.alto * 0.08);
+    const anchoImg = Math.round((anchoUtil - 30) * 0.46);
+    const xImg = margenH;
+    const xTexto = margenH + anchoImg + 30;
+    const anchoTexto = anchoUtil - anchoImg - 30;
+
+    if (imagenes.length > 0) {
+      const img = imagenes[0];
+      const actImg = { ...img, x: xImg, y: yZona, ancho: anchoImg, alto: altoZona, modificado: ahora };
+      cambios.push({ id: img.id, antes: img, despues: actImg });
+    }
+
+    if (textos.length >= 2) {
+      const [t1, t2] = textos;
+      cambios.push({ id: t1.id, antes: t1, despues: { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 26 } } });
+      cambios.push({ id: t2.id, antes: t2, despues: { ...t2, x: xTexto, y: yZona, ancho: anchoTexto, modificado: ahora, datos: { ...t2.datos, tamano: 18 } } });
+    } else if (textos.length === 1) {
+      const [t1] = textos;
+      cambios.push({ id: t1.id, antes: t1, despues: { ...t1, x: margenH, y: yTitulo, ancho: anchoUtil, modificado: ahora, datos: { ...t1.datos, tamano: 26 } } });
+      const txt = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xTexto, y: yZona, ancho: anchoTexto, alto: altoZona, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Descripción o análisis del esquema / imagen…', e: 'normal' }], tamano: 18, color: '#334155' },
+      });
+      cambios.push({ id: txt.id, antes: null, despues: txt });
+    } else {
+      const tit = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: margenH, y: yTitulo, ancho: anchoUtil, alto: altoTitulo, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Esquema y notas', e: 'titulo' }], tamano: 26, color: '#14192b' },
+      });
+      const txt = crearElemento(documentoId, TIPOS_ELEMENTO.TEXTO, {
+        x: xTexto, y: yZona, ancho: anchoTexto, alto: altoZona, z: ++zMax, contenedor: tarjetaId,
+        datos: { bloques: [{ t: 'Descripción del esquema o anotaciones clave…', e: 'normal' }], tamano: 18, color: '#334155' },
+      });
+      cambios.push({ id: tit.id, antes: null, despues: tit });
+      cambios.push({ id: txt.id, antes: null, despues: txt });
+    }
+  }
+
+  return { cambios };
 }

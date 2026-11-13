@@ -1,6 +1,6 @@
 // Generación del service worker a partir de la plantilla y de los archivos compilados.
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 // Lista (con rutas relativas y «/») de todos los archivos de una carpeta, ordenada.
@@ -42,8 +42,18 @@ export function pluginServiceWorker(rutaPlantilla) {
   return {
     name: 'anotomia-service-worker',
     apply: 'build',
-    configResolved(cfg) { carpetaSalida = join(cfg.root, cfg.build.outDir); },
+    configResolved(cfg) {
+      const out = cfg.build?.outDir || 'dist';
+      if (cfg.root && existsSync(join(cfg.root, out))) {
+        carpetaSalida = join(cfg.root, out);
+      } else if (existsSync(join(process.cwd(), out))) {
+        carpetaSalida = join(process.cwd(), out);
+      } else {
+        carpetaSalida = join(process.cwd(), out);
+      }
+    },
     closeBundle() {
+      if (!existsSync(carpetaSalida)) return;
       const archivos = listarArchivos(carpetaSalida);
       const texto = generarSW(readFileSync(rutaPlantilla, 'utf-8'), archivos, (a) => readFileSync(join(carpetaSalida, a)));
       writeFileSync(join(carpetaSalida, 'sw.js'), texto);

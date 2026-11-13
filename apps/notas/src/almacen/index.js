@@ -7,4 +7,8 @@ export * from './autoguardado.js';
 export * from './pendientes.js';
 export * from './blobs.js';
 export * from './carpetas.js';
+export * from './busqueda.js';
+export * from './repeticion.js';
+export * from './enlaces.js';
+export * from './examenes.js';
 export { cerrarBD, EVENTO_ESPACIO_LLENO, esErrorCuota } from './db.js';

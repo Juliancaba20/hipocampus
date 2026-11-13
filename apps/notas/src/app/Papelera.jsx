@@ -15,7 +15,13 @@ export default function Papelera({ volver, avisarCambio }) {
   const recargar = useCallback(async () => {
     try { setDocs(await listarDocumentos({ papelera: true })); avisarCambio(); } catch (e) { setError(e.message); setDocs([]); }
   }, [avisarCambio]);
-  useEffect(() => { recargar(); }, [recargar]);
+  useEffect(() => {
+    let activo = true;
+    listarDocumentos({ papelera: true })
+      .then((lista) => { if (activo) setDocs(lista); })
+      .catch((e) => { if (activo) { setError(e.message); setDocs([]); } });
+    return () => { activo = false; };
+  }, []);
 
   async function restaurar(d) { await restaurarDePapelera(d); await recargar(); }
   async function confirmado() {
@@ -28,7 +34,7 @@ export default function Papelera({ volver, avisarCambio }) {
   return (
     <div className="nt-pantalla">
       <header className="nt-cabecera">
-        <button className="nt-btn" onClick={volver}>← Volver</button>
+        <button className="nt-btn" onClick={volver}>Volver</button>
         <div className="nt-logo">Papelera</div>
         <button className="nt-btn nt-btn--peligro-suave" disabled={!docs?.length} onClick={() => setConfirmar({ tipo: 'todo' })}>Vaciar papelera</button>
       </header>

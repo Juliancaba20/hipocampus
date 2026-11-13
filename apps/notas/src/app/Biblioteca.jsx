@@ -4,7 +4,7 @@ import {
   duplicarDocumento, enviarAPapelera, obtenerAjuste, guardarAjuste,
   estadoAlmacenamiento, pedirPersistencia, asegurarPersistencia,
   listarCarpetas, guardarCarpeta, eliminarCarpeta, moverDocumentoACarpeta,
-  asignarEtiquetasDocumento, COLORES_CARPETA,
+  asignarEtiquetasDocumento, COLORES_CARPETA, formatearFechaExamen,
 } from '../almacen/index.js';
 import {
   exportarDocumento, exportarTodasLasNotas,
@@ -14,8 +14,20 @@ import {
   INTERVALOS_COPIA, soportaCarpetaLocal, resolverCarpetaDeCopias, realizarCopiaEnCarpeta,
   obtenerCarpetaGuardada, olvidarCarpetaGuardada,
 } from '../archivos/index.js';
+import { crearDocumentoDePdf } from '../archivos/anotarPdf.js';
+import {
+  obtenerResumenRepasoBiblioteca,
+  guardarLimiteNuevas,
+  obtenerFechaHoyISO,
+} from '../almacen/repeticion.js';
+import { obtenerProximoExamen } from '../almacen/examenes.js';
 import { Modal } from './Modal.jsx';
 import ModalInstalar from './ModalInstalar.jsx';
+import ModalBusquedaGlobal from './ModalBusquedaGlobal.jsx';
+import ModalRepasoEstadisticas from './ModalRepasoEstadisticas.jsx';
+import ModalExamenes from './ModalExamenes.jsx';
+import ModalNotasActualizacion from './ModalNotasActualizacion.jsx';
+import { VERSION_APP, versionVisible } from './notasActualizacion.js';
 import { ofertaDeInstalacion, esProgramaDeComputadora, PROGRAMAS } from '../pwa/escritorio.js';
 import { discoDelPrograma, archivoDesdeDisco } from '../archivos/disco.js';
 import { Miniatura, SelectorFormato } from './SelectorFormato.jsx';
@@ -313,7 +325,7 @@ function ModalCopias({ alCerrar, almac, alActualizar }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--nt-suave)' }}>
             <span>{almac ? `Espacio usado: ${mb(almac.usado)} de ${mb(almac.cuota)} (${porcentaje} %)` : 'Calculando...'}</span>
-            <span>{almac?.persistente ? 'Protección persistente activa ✓' : ''}</span>
+            <span>{almac?.persistente ? 'Protección persistente activa' : ''}</span>
           </div>
           {alertaEspacio && (
             <div className="nt-alerta--peligro">
@@ -384,12 +396,12 @@ function ModalCopias({ alCerrar, almac, alActualizar }) {
   );
 }
 
-function Elemento({ doc, abrir, menuAbierto, setMenu, accion, carpetasMap, rutaArchivo, enComputadora }) {
+function Elemento({ doc, abrir, menuAbierto, setMenu, accion, carpetasMap, colaDoc, fechaSimulada, rutaArchivo, enComputadora, mostrarAvisos = true }) {
   if (doc._danado) {
     return (
       <li className="nt-item nt-item--danado" style={{ border: '1px dashed #ef4444', background: '#fef2f2' }}>
         <div className="nt-item__abrir" style={{ opacity: 0.85, cursor: 'default' }}>
-          <span style={{ fontSize: '24px', marginRight: '8px' }}>⚠️</span>
+          
           <span className="nt-item__datos">
             <strong style={{ color: '#b91c1c' }}>{doc.titulo}</strong>
             <span style={{ color: '#dc2626' }}>Archivo dañado · {fechaRelativa(doc.modificado)}</span>
@@ -414,10 +426,34 @@ function Elemento({ doc, abrir, menuAbierto, setMenu, accion, carpetasMap, rutaA
     <li className="nt-item">
       <button className="nt-item__abrir" onClick={() => abrir(doc)}>
         <Miniatura formato={doc.formato} />
-        <span className="nt-item__datos">
+        <span className={`nt-item__datos ${(rutaArchivo || carpeta || tieneEtiquetas || (doc.formato === 'tarjetas' && colaDoc && mostrarAvisos)) ? 'nt-item__datos--con-pie' : ''}`}>
           <strong>{doc.titulo}</strong>
-          <span>{NOMBRE_FORMATO[doc.formato]} · {fechaRelativa(doc.modificado)}</span>
+          <span>
+            {doc.config?.esAnotacionPdf
+              ? `Anotación PDF (${doc.config.cantidadPaginas} págs)`
+              : NOMBRE_FORMATO[doc.formato]} · {fechaRelativa(doc.modificado)}
+          </span>
           {rutaArchivo && <span className="nt-badge-etiqueta" title={`Guardado en: ${rutaArchivo}`}>📄 En archivo</span>}
+          {doc.formato === 'tarjetas' && colaDoc && mostrarAvisos && (
+            <span
+              className="nt-badge-srs"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: '12px',
+                background: colaDoc.total > 0 ? '#eff6ff' : '#f8fafc',
+                color: colaDoc.total > 0 ? '#1d4ed8' : '#64748b',
+                border: `1px solid ${colaDoc.total > 0 ? '#bfdbfe' : '#e2e8f0'}`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginTop: '4px',
+              }}
+            >
+              <>{colaDoc.total > 0 ? `${colaDoc.total} para repasar hoy` : 'Al día'}</>
+            </span>
+          )}
           {carpeta && (
             <span
               className="nt-badge-carpeta"
@@ -436,10 +472,30 @@ function Elemento({ doc, abrir, menuAbierto, setMenu, accion, carpetasMap, rutaA
           )}
         </span>
       </button>
+      <button
+        type="button"
+        className={`nt-item__fav ${doc.favorito ? 'nt-item__fav--on' : ''}`}
+        aria-label={doc.favorito ? 'Quitar de favoritas' : 'Fijar como favorita'}
+        title={doc.favorito ? 'Quitar de favoritas' : 'Fijar como favorita'}
+        onClick={(e) => {
+          e.stopPropagation();
+          accion('toggle-favorito', doc);
+        }}
+      >
+        {doc.favorito ? 'Fijada' : 'Fijar'}
+      </button>
       <button className="nt-item__menu" aria-label={`Opciones de ${doc.titulo}`} aria-haspopup="menu" aria-expanded={menuAbierto}
         onClick={(e) => { e.stopPropagation(); setMenu(menuAbierto ? null : doc.id); }}>⋯</button>
       {menuAbierto && (
         <div className="nt-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+          <button role="menuitem" onClick={() => accion('toggle-favorito', doc)}>
+            <>{doc.favorito ? 'Desfijar de favoritas' : 'Fijar como favorita'}</>
+          </button>
+          {doc.formato === 'tarjetas' && (
+            <button role="menuitem" onClick={() => abrir(doc, { modoEstudio: true, fechaSimulada })}>
+              Repasar mazo {colaDoc?.total > 0 ? `(${colaDoc.total})` : ''}
+            </button>
+          )}
           <button role="menuitem" onClick={() => accion('renombrar', doc)}>Renombrar</button>
           <button role="menuitem" onClick={() => accion('mover', doc)}>Mover a materia...</button>
           <button role="menuitem" onClick={() => accion('etiquetas', doc)}>Etiquetas...</button>
@@ -479,11 +535,80 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
   const enComputadora = esProgramaDeComputadora(); // programa de Windows, Mac o Linux: archivos reales en el disco
   const [rutasDisco, setRutasDisco] = useState({}); // documento → archivo vinculado (solo en el programa de computadora)
   const [modalInstalar, setModalInstalar] = useState(() => oferta.tipo !== 'instalado' && typeof window !== 'undefined' && window.location.hash === '#instalar');
+  const [modalNovedades, setModalNovedades] = useState(false);
+  const [novedadSinVer, setNovedadSinVer] = useState(false);
+  const [modalBusquedaGlobal, setModalBusquedaGlobal] = useState(false);
   const [consultaDuplicado, setConsultaDuplicado] = useState(null);
   const [arrastrando, setArrastrando] = useState(false);
   const [recordatorioVisible, setRecordatorioVisible] = useState(false);
   const [diasRecordatorio, setDiasRecordatorio] = useState(14);
   const inputArchivoRef = useRef(null);
+  const inputPdfRef = useRef(null);
+
+  // Estados de Repetición Espaciada (SRS - Etapa 22C)
+  const [resumenSRS, setResumenSRS] = useState(null);
+  // Avisos de repaso en la biblioteca (por documento, banner y contador): se pueden ocultar desde «Repaso»
+  const [mostrarAvisosRepaso, setMostrarAvisosRepaso] = useState(true);
+  const [fechaSimulada, setFechaSimulada] = useState(null);
+  const [modalRepasoVisible, setModalRepasoVisible] = useState(false);
+  const [seccionFiltro, setSeccionFiltro] = useState('todas');
+  const [proximoExamen, setProximoExamen] = useState(null);
+  const [modalExamenes, setModalExamenes] = useState(false);
+
+  // Notas de actualización: se avisa con «Nuevo» hasta que la persona las abre una vez por versión.
+  useEffect(() => {
+    let vivo = true;
+    obtenerAjuste('notasActualizacion.vista', null).then((vista) => { if (vivo) setNovedadSinVer(vista !== VERSION_APP); }).catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+  function abrirNovedades() {
+    setModalNovedades(true);
+    setNovedadSinVer(false);
+    guardarAjuste('notasActualizacion.vista', VERSION_APP).catch(() => {});
+  }
+
+  async function procesarAnotarPdf(archivo) {
+    if (!archivo) return;
+    setError('');
+    setAviso('');
+
+    const pesoMb = archivo.size / (1024 * 1024);
+    if (pesoMb > 50) {
+      const continuar = typeof window !== 'undefined' && window.confirm
+        ? window.confirm(`El archivo PDF pesa ${pesoMb.toFixed(1)} MB (supera el umbral de 50 MB recomendado). ¿Desea importarlo de todos modos?`)
+        : true;
+      if (!continuar) return;
+    }
+
+    try {
+      setAviso('Analizando y preparando PDF para anotación…');
+      const resultado = await crearDocumentoDePdf(archivo, {
+        carpetaId: carpetaActiva !== 'todas' && carpetaActiva !== 'sin-carpeta' ? carpetaActiva : null,
+      });
+
+      if (resultado.superaUmbralAviso) {
+        setAviso(`Documento PDF creado (${resultado.numPaginas} págs). Aviso: el archivo original pesa ${resultado.tamanoMb.toFixed(1)} MB.`);
+      } else {
+        setAviso(`Documento PDF creado con éxito (${resultado.numPaginas} págs).`);
+      }
+
+      await recargar();
+      abrirDocumento(resultado.doc);
+    } catch (err) {
+      setError(err.message || 'Error al anotar el PDF');
+    }
+  }
+
+  useEffect(() => {
+    const alTecla = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setModalBusquedaGlobal(true);
+      }
+    };
+    window.addEventListener('keydown', alTecla);
+    return () => window.removeEventListener('keydown', alTecla);
+  }, []);
 
   const verificarRecordatorio = useCallback(async (listaDocs) => {
     try {
@@ -496,7 +621,7 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
     }
   }, []);
 
-  const recargar = useCallback(async () => {
+  const recargar = useCallback(async (fechaOpcional = null) => {
     try {
       const [lista, listaCarpetas] = await Promise.all([
         listarDocumentos(),
@@ -509,14 +634,41 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
       const est = await estadoAlmacenamiento();
       setAlmac(est);
       verificarRecordatorio(lista);
+      try {
+        const fechaParaSRS = fechaOpcional !== null ? fechaOpcional : (fechaSimulada || obtenerFechaHoyISO());
+        const [srs, proxExamen] = await Promise.all([
+          obtenerResumenRepasoBiblioteca(lista, listaCarpetas, fechaParaSRS),
+          obtenerProximoExamen(fechaParaSRS),
+        ]);
+        setResumenSRS(srs);
+        setProximoExamen(proxExamen);
+      } catch {
+        /* ignorar fallos menores de cálculo de repaso */
+      }
       avisarCambio();
     } catch (e) { setError(e.message); setDocs([]); }
-  }, [avisarCambio, verificarRecordatorio, enComputadora]);
+  }, [avisarCambio, verificarRecordatorio, fechaSimulada, enComputadora]);
+
+  const cambiarFechaSimulada = async (nuevaFecha) => {
+    setFechaSimulada(nuevaFecha);
+    if (docs) {
+      try {
+        const srs = await obtenerResumenRepasoBiblioteca(docs, carpetas, nuevaFecha || obtenerFechaHoyISO());
+        setResumenSRS(srs);
+      } catch {}
+    }
+  };
+
+  const guardarLimiteNuevasAccion = async (limite) => {
+    await guardarLimiteNuevas(limite);
+    await recargar();
+  };
 
   useEffect(() => {
     (async () => {
       setOrden(await obtenerAjuste('biblioteca.orden', 'fecha'));
       setVista(await obtenerAjuste('biblioteca.vista', 'cuadricula'));
+      setMostrarAvisosRepaso(await obtenerAjuste('repasos.mostrarAvisos', true));
       recargar();
     })();
   }, [recargar]);
@@ -590,17 +742,32 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
       });
     }
 
+    // Filtrar por sección (Todas | Favoritas | Recientes)
+    if (seccionFiltro === 'favoritas') {
+      lista = lista.filter((d) => d.favorito);
+    } else if (seccionFiltro === 'recientes') {
+      lista.sort((a, b) => (b.abiertoEl || b.modificado || 0) - (a.abiertoEl || a.modificado || 0));
+      return lista;
+    }
+
     if (orden === 'nombre') lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base' }));
     else lista.sort((a, b) => b.modificado - a.modificado);
     return lista;
-  }, [docs, carpetaActiva, carpetasMap, etiquetaFiltro, busqueda, orden]);
+  }, [docs, carpetaActiva, carpetasMap, etiquetaFiltro, busqueda, orden, seccionFiltro]);
 
   const cambiarOrden = (v) => { setOrden(v); guardarAjuste('biblioteca.orden', v); };
   const cambiarVista = (v) => { setVista(v); guardarAjuste('biblioteca.vista', v); };
+  const cambiarMostrarAvisosRepaso = (v) => { setMostrarAvisosRepaso(v); guardarAjuste('repasos.mostrarAvisos', v); };
 
   async function accion(tipo, doc) {
     setMenu(null);
     try {
+      if (tipo === 'toggle-favorito') {
+        const nuevoEstado = !doc.favorito;
+        await guardarDocumento({ ...doc, favorito: nuevoEstado }, { tocarFecha: false });
+        setAviso(nuevoEstado ? `«${doc.titulo}» marcada como favorita.` : `«${doc.titulo}» quitada de favoritas.`);
+        await recargar();
+      }
       if (tipo === 'renombrar') setRenombrando(doc);
       if (tipo === 'mover') setMoverDoc(doc);
       if (tipo === 'etiquetas') setEtiquetasDoc(doc);
@@ -775,10 +942,36 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
     <div className="nt-pantalla">
       <header className="nt-cabecera">
         <div className="nt-logo">Anotomía</div>
+        <button className="nt-btn" onClick={() => setModalBusquedaGlobal(true)} title="Buscar en títulos, párrafos y tablas (Ctrl+K)">Buscar</button>
+        <button
+          className={`nt-btn ${resumenSRS?.totalGeneral > 0 ? 'nt-btn--activo' : ''}`}
+          onClick={() => setModalRepasoVisible(true)}
+          title="Repetición espaciada diaria y estadísticas"
+          style={{
+            borderColor: resumenSRS?.totalGeneral > 0 ? '#3b82f6' : undefined,
+            color: resumenSRS?.totalGeneral > 0 ? '#1d4ed8' : undefined,
+            fontWeight: resumenSRS?.totalGeneral > 0 ? 600 : undefined,
+          }}
+        >
+          Repaso {mostrarAvisosRepaso && resumenSRS?.totalGeneral > 0 ? `(${resumenSRS.totalGeneral})` : ''}
+        </button>
+        <button
+          className="nt-btn"
+          onClick={() => setModalExamenes(true)}
+          title="Calendario de exámenes y cuenta regresiva local"
+          style={{
+            borderColor: proximoExamen ? '#3b82f6' : undefined,
+            color: proximoExamen?.cuenta?.urgente ? '#b91c1c' : proximoExamen ? '#1d4ed8' : undefined,
+            fontWeight: proximoExamen ? 600 : undefined,
+          }}
+        >
+          Exámenes {proximoExamen ? `(${proximoExamen.cuenta.texto})` : ''}
+        </button>
         <button className="nt-btn" onClick={irAPapelera}>Papelera{cantidadPapelera > 0 ? ` (${cantidadPapelera})` : ''}</button>
         {enComputadora
           ? <button className="nt-btn" onClick={abrirDelDisco} title="Abrir un documento guardado en su equipo (.nota)">Abrir…</button>
           : <button className="nt-btn" onClick={() => inputArchivoRef.current?.click()} title="Importar archivos .nota o respaldos">Importar</button>}
+        <button className="nt-btn" onClick={() => inputPdfRef.current?.click()} title="Elegir un archivo PDF del dispositivo para hacer anotaciones">Anotar un PDF</button>
         <button className="nt-btn" onClick={() => setModalCopias(true)} title="Copias de seguridad y almacenamiento">Copias de seguridad</button>
         {abrirAyuda && <button className="nt-btn" onClick={abrirAyuda} title="Ayuda de atajos y gestos" aria-label="Ayuda">Ayuda (?)</button>}
         <button className="nt-btn nt-btn--primario" onClick={() => setNuevo(true)}>Nueva nota</button>
@@ -791,6 +984,18 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
           onChange={(e) => {
             if (e.target.files && e.target.files.length > 0) {
               procesarImportacion(e.target.files);
+              e.target.value = '';
+            }
+          }}
+        />
+        <input
+          ref={inputPdfRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              procesarAnotarPdf(e.target.files[0]);
               e.target.value = '';
             }
           }}
@@ -818,7 +1023,111 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
           </div>
         )}
 
-        <h1 className="nt-titulo">Mis notas</h1>
+        {/* Banner de Repaso Espaciado y Estadísticas (Etapa 22C) */}
+        {resumenSRS && mostrarAvisosRepaso && (
+          <div
+            className="nt-banner-srs"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.03) 100%)',
+              border: '1px solid rgba(59, 130, 246, 0.22)',
+              borderRadius: '12px',
+              marginBottom: '16px',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                
+                <strong style={{ fontSize: '14px', color: '#1e3a8a' }}>Para repasar hoy:</strong>
+                <span
+                  style={{
+                    background: resumenSRS.totalGeneral > 0 ? '#2563eb' : '#64748b',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: '12px',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                  }}
+                >
+                  {resumenSRS.totalGeneral > 0 ? `${resumenSRS.totalGeneral} pendientes` : 'Al día'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '13px', color: '#334155' }}>
+                <span>Racha: <strong>{resumenSRS.estadisticas.rachaDias} {resumenSRS.estadisticas.rachaDias === 1 ? 'día' : 'días'}</strong></span>
+                <span>Aciertos: <strong>{resumenSRS.estadisticas.porcentajeAciertos}%</strong></span>
+                <span>Hoy: <strong>{resumenSRS.estadisticas.repasadasHoy} {resumenSRS.estadisticas.repasadasHoy === 1 ? 'repasada' : 'repasadas'}</strong></span>
+                {fechaSimulada && (
+                  <span style={{ color: '#b45309', fontWeight: 600, background: '#fef3c7', padding: '1px 8px', borderRadius: '4px', fontSize: '12px' }}>
+                    Fecha simulada: {fechaSimulada}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="nt-btn nt-btn--sm nt-btn--primario"
+              onClick={() => setModalRepasoVisible(true)}
+            >
+              Ver cola y estadísticas
+            </button>
+          </div>
+        )}
+
+        {/* Banner de Próximo Examen y Cuenta Regresiva (Etapa 23) */}
+        {proximoExamen && !proximoExamen.examen.completado && (
+          <div className={`nt-examen-aviso ${proximoExamen.cuenta.urgente ? 'nt-examen-aviso--urgente' : ''}`} role="region" aria-label="Próximo examen">
+            <div className="nt-examen-aviso__texto">
+              <span className="nt-examen-aviso__etiqueta">Próximo examen</span>
+              <strong className="nt-examen-aviso__materia">{proximoExamen.examen.materia || proximoExamen.examen.titulo}</strong>
+              {proximoExamen.examen.materia && <span className="nt-examen-aviso__titulo">{proximoExamen.examen.titulo}</span>}
+            </div>
+            <div className="nt-examen-aviso__fecha">
+              <strong>{formatearFechaExamen(proximoExamen.examen.fecha)}</strong>
+              <span>{proximoExamen.cuenta.texto}</span>
+            </div>
+            <button type="button" className="nt-btn nt-btn-sm" onClick={() => setModalExamenes(true)}>
+              Ver calendario
+            </button>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+          <h1 className="nt-titulo" style={{ margin: 0 }}>Mis notas</h1>
+          {/* Pestañas de secciones: Todas, Favoritas, Recientes */}
+          <div style={{ display: 'flex', gap: '6px' }} role="tablist" aria-label="Secciones de la biblioteca">
+            <button
+              type="button"
+              className={`nt-btn-sm ${seccionFiltro === 'todas' ? 'nt-btn-sm--on' : ''}`}
+              style={{ padding: '4px 10px', fontWeight: 600, fontSize: '12px' }}
+              onClick={() => setSeccionFiltro('todas')}
+            >
+              Todas
+            </button>
+            <button
+              type="button"
+              className={`nt-btn-sm ${seccionFiltro === 'favoritas' ? 'nt-btn-sm--on' : ''}`}
+              style={{ padding: '4px 10px', fontWeight: 600, fontSize: '12px' }}
+              onClick={() => setSeccionFiltro('favoritas')}
+            >
+              Favoritas
+            </button>
+            <button
+              type="button"
+              className={`nt-btn-sm ${seccionFiltro === 'recientes' ? 'nt-btn-sm--on' : ''}`}
+              style={{ padding: '4px 10px', fontWeight: 600, fontSize: '12px' }}
+              onClick={() => setSeccionFiltro('recientes')}
+            >
+              Recientes
+            </button>
+          </div>
+        </div>
 
         {/* Barra de materias / carpetas */}
         <div className="nt-carpetas-contenedor">
@@ -923,7 +1232,26 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
         </div>
 
         <div className="nt-barra">
-          <input type="search" className="nt-campo nt-barra__buscar" placeholder="Buscar por título, materia o etiqueta" aria-label="Buscar notas" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+          <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+            <input
+              type="search"
+              className="nt-campo nt-barra__buscar"
+              style={{ width: '100%', paddingRight: '120px' }}
+              placeholder="Buscar por título, materia o etiqueta..."
+              aria-label="Buscar notas"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
+            <button
+              type="button"
+              className="nt-btn nt-btn--sm"
+              style={{ position: 'absolute', right: '4px', fontSize: '11px', padding: '3px 8px' }}
+              onClick={() => setModalBusquedaGlobal(true)}
+              title="Buscar texto en párrafos, tablas y notas (Ctrl+K)"
+            >
+              Búsqueda global
+            </button>
+          </div>
           <select className="nt-campo" aria-label="Ordenar" value={orden} onChange={(e) => cambiarOrden(e.target.value)}>
             <option value="fecha">Más recientes</option><option value="nombre">Nombre (A–Z)</option>
           </select>
@@ -951,6 +1279,9 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
                   setMenu={setMenu}
                   accion={accion}
                   carpetasMap={carpetasMap}
+                  colaDoc={resumenSRS?.conteoPorDoc?.[d.id]}
+                  mostrarAvisos={mostrarAvisosRepaso}
+                  fechaSimulada={fechaSimulada}
                 />
               ))}
             </ul>
@@ -963,9 +1294,12 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
           {oferta.tipo !== 'instalado' && (
             <button className="nt-enlace" onClick={() => setModalInstalar(true)}>{oferta.tipo === 'programa' ? `Descargar para ${PROGRAMAS[oferta.plataforma].nombre}` : 'Instalar la app'}</button>
           )}
+          <button className="nt-enlace" onClick={abrirNovedades}>
+            Notas de actualización{novedadSinVer && <span className="nt-novedad-punto">Nuevo</span>}
+          </button>
         </span>
         <span>
-          {almac?.disponible ? `Espacio usado: ${mb(almac.usado)}` : ''}
+          Anotomía {versionVisible()}{almac?.disponible ? ` · Espacio usado: ${mb(almac.usado)}` : ''}
           {almac?.disponible && !almac.persistente && <button className="nt-enlace" onClick={async () => { await pedirPersistencia(); setAlmac(await estadoAlmacenamiento()); }}>Proteger datos</button>}
         </span>
       </footer>
@@ -1008,10 +1342,39 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
         />
       )}
       {modalInstalar && <ModalInstalar alCerrar={() => setModalInstalar(false)} />}
+      {modalNovedades && <ModalNotasActualizacion alCerrar={() => setModalNovedades(false)} />}
       {consultaDuplicado && (
         <ModalDuplicado
           consulta={consultaDuplicado}
           alResolver={resolverDuplicado}
+        />
+      )}
+      {modalBusquedaGlobal && (
+        <ModalBusquedaGlobal
+          alCerrar={() => setModalBusquedaGlobal(false)}
+          alAbrirDocumento={abrirDocumento}
+          carpetasMap={carpetasMap}
+        />
+      )}
+      {modalRepasoVisible && (
+        <ModalRepasoEstadisticas
+          alCerrar={() => setModalRepasoVisible(false)}
+          resumenSRS={resumenSRS}
+          documentos={docs || []}
+          carpetasMap={carpetasMap}
+          fechaSimulada={fechaSimulada}
+          alCambiarFechaSimulada={cambiarFechaSimulada}
+          alGuardarLimiteNuevas={guardarLimiteNuevasAccion}
+          alAbrirMazo={(doc, opts) => abrirDocumento(doc, opts)}
+          mostrarAvisos={mostrarAvisosRepaso}
+          alCambiarMostrarAvisos={cambiarMostrarAvisosRepaso}
+        />
+      )}
+      {modalExamenes && (
+        <ModalExamenes
+          carpetas={carpetas}
+          alCerrar={() => setModalExamenes(false)}
+          alCambio={() => recargar()}
         />
       )}
     </div>

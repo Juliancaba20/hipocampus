@@ -1,11 +1,18 @@
-// Conversión entre HTML y el modelo de texto (Etapa 6).
+// Conversión entre HTML y el modelo de texto (Etapas 6 y 20A).
 //  · domAModelo / htmlAModelo: leen lo que hay en el editor o en el portapapeles (Word, web, Google Docs…).
 //    Solo se conserva lo que el modelo conoce; nada del HTML original se copia tal cual.
 //  · modeloAHtml: genera el HTML del editor y del portapapeles, siempre escapado.
-import { NIVEL_MAX, TABLA } from './estilo.js';
+import { CATALOGO_FUENTES, NIVEL_MAX, SANGRIA_MAX, SANGRIA_PASO, TABLA } from './estilo.js';
 import { colorSeguro, crearRun, normalizarBloques, sanear, unirRuns } from './modelo.js';
 
-const NOMBRES = { black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', blue: '#0000ff', yellow: '#ffff00', orange: '#ffa500', purple: '#800080', gray: '#808080', grey: '#808080', cyan: '#00ffff', aqua: '#00ffff', magenta: '#ff00ff', fuchsia: '#ff00ff', lime: '#00ff00', pink: '#ffc0cb', brown: '#a52a2a', navy: '#000080', teal: '#008080', silver: '#c0c0c0', maroon: '#800000', olive: '#808000', darkblue: '#00008b', darkred: '#8b0000', darkgreen: '#006400', lightgray: '#d3d3d3', lightgrey: '#d3d3d3' };
+const NOMBRES = {
+  black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', blue: '#0000ff',
+  yellow: '#ffff00', orange: '#ffa500', purple: '#800080', gray: '#808080', grey: '#808080',
+  cyan: '#00ffff', aqua: '#00ffff', magenta: '#ff00ff', fuchsia: '#ff00ff', lime: '#00ff00',
+  pink: '#ffc0cb', brown: '#a52a2a', navy: '#000080', teal: '#008080', silver: '#c0c0c0',
+  maroon: '#800000', olive: '#808000', darkblue: '#00008b', darkred: '#8b0000', darkgreen: '#006400',
+  lightgray: '#d3d3d3', lightgrey: '#d3d3d3',
+};
 const h2 = (n) => Math.max(0, Math.min(255, Math.round(+n))).toString(16).padStart(2, '0');
 
 // Cualquier color CSS razonable → '#rrggbb' (o null si es transparente o desconocido).
@@ -31,6 +38,31 @@ const IGNORADOS = new Set(['SCRIPT', 'STYLE', 'HEAD', 'META', 'LINK', 'TITLE', '
 
 const estiloAttr = (el) => (el.getAttribute && el.getAttribute('style')) || '';
 
+function extraerFamilia(str) {
+  if (!str) return null;
+  const s = String(str).toLowerCase();
+  if (s.includes('mono') || s.includes('courier') || s.includes('consolas') || s.includes('menlo')) return 'mono';
+  if (s.includes('sans') || s.includes('arial') || s.includes('helvetica') || s.includes('bricolage') || s.includes('system-ui')) return 'sans';
+  if (s.includes('serif') || s.includes('georgia') || s.includes('times')) return 'serif';
+  return null;
+}
+
+function extraerTamanoPx(str) {
+  if (!str) return null;
+  const s = String(str).trim().toLowerCase();
+  let m = /^([\d.]+)px$/.exec(s);
+  if (m) {
+    const px = parseFloat(m[1]);
+    return Number.isFinite(px) && px >= 8 && px <= 140 ? Math.round(px) : null;
+  }
+  m = /^([\d.]+)pt$/.exec(s);
+  if (m) {
+    const px = parseFloat(m[1]) * (96 / 72);
+    return Number.isFinite(px) && px >= 8 && px <= 140 ? Math.round(px) : null;
+  }
+  return null;
+}
+
 function formatoDe(el, base, op) {
   const t = el.tagName.toUpperCase();
   const f = { ...base };
@@ -38,7 +70,36 @@ function formatoDe(el, base, op) {
   else if (t === 'I' || t === 'EM' || t === 'CITE' || t === 'VAR') f.cursiva = true;
   else if (t === 'U' || t === 'INS') f.subrayado = true;
   else if (t === 'S' || t === 'STRIKE' || t === 'DEL') f.tachado = true;
-  else if (t === 'FONT') { const c = colorAHex(el.getAttribute('color')); if (c) f.color = c; }
+  else if (t === 'SUB') f.script = 'sub';
+  else if (t === 'SUP') {
+    f.script = 'super';
+    const pie = el.getAttribute('data-nt-nota-pie');
+    if (pie) f.notaAlPie = pie;
+  }
+  else if (t === 'A') {
+    const href = el.getAttribute('href');
+    if (href) {
+      f.enlace = {
+        tipo: el.getAttribute('data-nt-link-tipo') || 'web',
+        url: href,
+        notaId: el.getAttribute('data-nt-nota-id') || null,
+      };
+    }
+  }
+  else if (t === 'FONT') {
+    const c = colorAHex(el.getAttribute('color')); if (c) f.color = c;
+    const face = extraerFamilia(el.getAttribute('face')); if (face) f.fuente = face;
+    const size = parseInt(el.getAttribute('size'), 10);
+    if (size >= 1 && size <= 7) {
+      const mapaTam = [10, 12, 14, 18, 24, 32, 48];
+      f.tamano = mapaTam[size - 1];
+    }
+  }
+
+  if (el.classList?.contains?.('nt-oculto') || el.getAttribute?.('data-nt-oculto') === '1') {
+    f.oculto = true;
+  }
+
   const s = el.style;
   if (s) {
     const w = String(s.fontWeight || '').trim();
@@ -56,6 +117,16 @@ function formatoDe(el, base, op) {
     let bg = colorAHex(s.backgroundColor);
     if (!bg) { const m = /mso-highlight:\s*([a-z]+)/i.exec(estiloAttr(el)); if (m) bg = NOMBRES[m[1].toLowerCase()] || null; }
     if (bg && bg !== '#ffffff') f.resaltado = bg;
+
+    const va = String(s.verticalAlign || '').trim().toLowerCase();
+    if (va === 'sub') f.script = 'sub';
+    else if (va === 'super') f.script = 'super';
+
+    const fam = extraerFamilia(s.fontFamily);
+    if (fam) f.fuente = fam;
+
+    const tpx = extraerTamanoPx(s.fontSize);
+    if (tpx) f.tamano = tpx;
   }
   // El color de tinta base y el negro de una página pegada no se guardan: así el texto sigue el color del bloque.
   if (f.color && (f.color === op.colorBase || (op.colapsar && f.color === '#000000'))) delete f.color;
@@ -64,7 +135,50 @@ function formatoDe(el, base, op) {
 
 function alinearDe(el) {
   const a = String((el.style && el.style.textAlign) || (el.getAttribute && el.getAttribute('align')) || '').toLowerCase();
-  return a === 'center' ? 'centro' : a === 'right' || a === 'end' ? 'derecha' : undefined;
+  return a === 'center' ? 'centro' : a === 'right' || a === 'end' ? 'derecha' : a === 'justify' ? 'justificado' : undefined;
+}
+
+function extrasDeBloque(el) {
+  const ex = {};
+  const al = alinearDe(el);
+  if (al) ex.alinear = al;
+  if (el.getAttribute) {
+    const attrEstilo = el.getAttribute('data-nt-estilo');
+    if (attrEstilo) ex.estilo = attrEstilo.slice(0, 50);
+    const attrSalto = el.getAttribute('data-nt-salto-pagina');
+    if (attrSalto === '1') ex.saltoPagina = true;
+
+    const attrSangria = parseInt(el.getAttribute('data-nt-sangria') || el.getAttribute('data-sangria'), 10);
+    if (Number.isFinite(attrSangria) && attrSangria > 0) {
+      ex.sangria = Math.min(SANGRIA_MAX, attrSangria);
+    }
+  }
+  const s = el.style;
+  if (s) {
+    const lh = parseFloat(s.lineHeight);
+    if (Number.isFinite(lh) && lh >= 0.8 && lh <= 3) ex.interlineado = Math.round(lh * 100) / 100;
+    const ml = s.marginLeft || s.paddingLeft;
+    if (ml && ex.sangria === undefined) {
+      const mlStr = String(ml).trim();
+      if (mlStr.endsWith('em')) {
+        const em = parseFloat(mlStr);
+        if (Number.isFinite(em) && em > 0) {
+          ex.sangria = Math.min(SANGRIA_MAX, Math.max(1, Math.round(em / SANGRIA_PASO)));
+        }
+      } else if (mlStr.endsWith('pt')) {
+        const pt = parseFloat(mlStr);
+        if (Number.isFinite(pt) && pt > 12) {
+          ex.sangria = Math.min(SANGRIA_MAX, Math.max(1, Math.round(pt / 18)));
+        }
+      } else {
+        const px = parseFloat(mlStr);
+        if (Number.isFinite(px) && px > 15) {
+          ex.sangria = Math.min(SANGRIA_MAX, Math.max(1, Math.round(px / 24)));
+        }
+      }
+    }
+  }
+  return ex;
 }
 
 function tipoDe(t) { return t === 'H1' ? 'titulo1' : t === 'H2' ? 'titulo2' : /^H[3-6]$/.test(t) ? 'titulo3' : 'parrafo'; }
@@ -93,8 +207,17 @@ class Constructor {
       const { explicito, ...limpio } = b; void explicito;
       if (limpio.alinear === undefined) delete limpio.alinear;
       if (limpio.nivel === undefined) delete limpio.nivel;
+      if (limpio.interlineado === undefined) delete limpio.interlineado;
+      if (limpio.sangria === undefined) delete limpio.sangria;
+      if (limpio.estilo === undefined) delete limpio.estilo;
+      if (!limpio.saltoPagina) delete limpio.saltoPagina;
       this.bloques.push(limpio);
     }
+  }
+
+  saltoPagina() {
+    this.cerrar();
+    this.bloques.push({ tipo: 'saltoPagina', saltoPagina: true, runs: [] });
   }
 
   texto(str, fmt) {
@@ -115,7 +238,6 @@ class Constructor {
 
   _terminar(b) {
     if (this.colapsar) {
-      // Espacios sobrantes entre fragmentos, al principio y antes de un salto
       let prev = '\n';
       for (const r of b.runs) {
         let out = '';
@@ -142,13 +264,13 @@ function hijos(el, fmt, c, op) { for (const h of [...el.childNodes]) recorrer(h,
 
 function item(li, tipo, nivel, fmt, c, op) {
   const n = Math.min(nivel, NIVEL_MAX);
-  c.abrir(tipo, { nivel: n, alinear: alinearDe(li) });
+  c.abrir(tipo, { nivel: n, ...extrasDeBloque(li) });
   const f = formatoDe(li, fmt, op);
   for (const h of [...li.childNodes]) {
     const t = h.nodeType === 1 ? h.tagName.toUpperCase() : '';
     if (t === 'UL' || t === 'OL') { listar(h, n + 1, f, c, op); continue; }
     if (BLOQUES_HTML.has(t)) {
-      if (!c.actual) c.abrir(tipo, { nivel: n });
+      if (!c.actual) c.abrir(tipo, { nivel: n, ...extrasDeBloque(h) });
       else if (c.actual.runs.length) c.salto(f);
       if (c.actual && !c.actual.alinear) { const a = alinearDe(h); if (a) c.actual.alinear = a; }
       hijos(h, formatoDe(h, f, op), c, op);
@@ -178,28 +300,90 @@ function celda(td, op) {
   sub.cerrar();
   const runs = [];
   sub.bloques.filter((b) => b.tipo !== 'tabla').forEach((b, i) => { if (i > 0) runs.push(crearRun('\n')); runs.push(...b.runs); });
-  return { runs: unirRuns(runs) };
+  const cData = { runs: unirRuns(runs) };
+
+  const cs = parseInt(td.getAttribute('colspan'), 10);
+  if (Number.isFinite(cs) && cs > 1) cData.colspan = Math.min(TABLA.maxColumnas, cs);
+  const rs = parseInt(td.getAttribute('rowspan'), 10);
+  if (Number.isFinite(rs) && rs > 1) cData.rowspan = Math.min(TABLA.maxFilas, rs);
+
+  const bg = colorAHex(td.style?.backgroundColor || td.getAttribute('bgcolor'));
+  if (bg && bg !== '#ffffff') cData.fondo = bg;
+
+  const va = String(td.style?.verticalAlign || td.getAttribute('valign') || '').trim().toLowerCase();
+  if (va === 'middle' || va === 'center') cData.alinearV = 'centro';
+  else if (va === 'bottom') cData.alinearV = 'abajo';
+
+  return cData;
 }
 
 function tabla(el, op) {
   const trs = [...el.querySelectorAll('tr')].filter((tr) => tr.closest('table') === el).slice(0, TABLA.maxFilas);
-  const filas = trs.map((tr) => {
-    const fila = [];
+  if (!trs.length) return null;
+
+  // Reconstruir grilla bidimensional resolviendo colspan y rowspan
+  const grid = [];
+  for (let r = 0; r < trs.length; r++) {
+    if (!grid[r]) grid[r] = [];
+    const tr = trs[r];
+    let colIdx = 0;
     for (const td of [...tr.children]) {
       const t = td.tagName.toUpperCase();
       if (t !== 'TD' && t !== 'TH') continue;
-      fila.push(celda(td, op));
-      const span = Math.min(+td.getAttribute('colspan') || 1, TABLA.maxColumnas);
-      for (let k = 1; k < span; k++) fila.push({ runs: [] });
+      while (grid[r][colIdx]) colIdx++;
+      if (colIdx >= TABLA.maxColumnas) break;
+
+      const cData = celda(td, op);
+      const cs = Math.min(TABLA.maxColumnas - colIdx, cData.colspan || 1);
+      const rs = Math.min(TABLA.maxFilas - r, cData.rowspan || 1);
+      if (cs > 1) cData.colspan = cs; else delete cData.colspan;
+      if (rs > 1) cData.rowspan = rs; else delete cData.rowspan;
+
+      grid[r][colIdx] = cData;
+
+      for (let dr = 0; dr < rs; dr++) {
+        const trgR = r + dr;
+        if (!grid[trgR]) grid[trgR] = [];
+        for (let dc = 0; dc < cs; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          grid[trgR][colIdx + dc] = { runs: [], combinada: true };
+        }
+      }
+      colIdx += cs;
     }
-    return fila.slice(0, TABLA.maxColumnas);
-  }).filter((f) => f.length);
+  }
+
+  const maxCols = Math.max(1, ...grid.map((f) => (f ? f.length : 0)));
+  const filas = [];
+  for (let r = 0; r < trs.length; r++) {
+    const fila = [];
+    for (let c = 0; c < maxCols; c++) {
+      fila.push((grid[r] && grid[r][c]) || { runs: [] });
+    }
+    filas.push(fila);
+  }
   if (!filas.length) return null;
-  const n = Math.max(...filas.map((f) => f.length));
-  filas.forEach((f) => { while (f.length < n) f.push({ runs: [] }); });
+
   const primera = trs[0] ? [...trs[0].children].filter((x) => /^T[DH]$/i.test(x.tagName)) : [];
   const encabezado = el.getAttribute('data-enc') === '1' || (primera.length > 0 && primera.every((x) => x.tagName.toUpperCase() === 'TH'));
-  return { tipo: 'tabla', encabezado, filas };
+  const res = { tipo: 'tabla', encabezado, filas };
+
+  // Anchos de columnas si están especificados en <col> o celdas
+  const cols = [...el.querySelectorAll('col')].filter((c) => c.closest('table') === el);
+  if (cols.length === maxCols) {
+    const anchos = cols.map((c) => parseFloat(c.style?.width || c.getAttribute('width')) || 1);
+    if (anchos.every((w) => w > 0)) res.anchosColumnas = anchos;
+  }
+
+  // Atributos de bordes
+  const attrBordeEstilo = el.getAttribute('data-borde-estilo');
+  if (attrBordeEstilo) res.bordeEstilo = attrBordeEstilo;
+  const attrBordeColor = colorAHex(el.getAttribute('data-borde-color') || el.style?.borderColor);
+  if (attrBordeColor) res.bordeColor = attrBordeColor;
+  const attrBordeGrosor = parseInt(el.getAttribute('data-borde-grosor') || el.style?.borderWidth, 10);
+  if (Number.isFinite(attrBordeGrosor)) res.bordeGrosor = attrBordeGrosor;
+
+  return res;
 }
 
 function recorrer(nodo, fmt, c, op) {
@@ -209,14 +393,19 @@ function recorrer(nodo, fmt, c, op) {
   if (IGNORADOS.has(t)) return;
   if (/mso-list:\s*ignore/i.test(estiloAttr(nodo))) return;
   if (t === 'BR') { c.salto(fmt); return; }
+  if (t === 'HR' && (nodo.getAttribute('data-nt-salto-pagina') === '1' || (nodo.className && nodo.className.includes('nt-salto-pagina')))) {
+    c.saltoPagina();
+    return;
+  }
   if (t === 'TABLE') { c.tabla(tabla(nodo, op)); return; }
   if (t === 'UL' || t === 'OL') { listar(nodo, 0, fmt, c, op); return; }
   const f = formatoDe(nodo, fmt, op);
   if (BLOQUES_HTML.has(t)) {
     if (tieneHijosBloque(nodo)) { c.cerrar(); hijos(nodo, f, c, op); c.cerrar(); return; }
     const mso = listaMso(nodo);
-    if (mso) c.abrir(mso.tipo, { nivel: mso.nivel, alinear: alinearDe(nodo) });
-    else c.abrir(tipoDe(t), { alinear: alinearDe(nodo) });
+    const ex = extrasDeBloque(nodo);
+    if (mso) c.abrir(mso.tipo, { nivel: mso.nivel, ...ex });
+    else c.abrir(tipoDe(t), ex);
     if (t === 'PRE') c.pre++;
     hijos(nodo, f, c, op);
     if (t === 'PRE') c.pre--;
@@ -254,18 +443,52 @@ export function runsAHtml(runs) {
     if (dec.length) est.push(`text-decoration:${dec.join(' ')}`);
     const c = colorSeguro(r.color); if (c) est.push(`color:${c}`);
     const h = colorSeguro(r.resaltado); if (h) est.push(`background-color:${h}`);
-    const t = esc(r.texto).replace(/\n/g, '<br>');
-    return est.length ? `<span style="${est.join(';')}">${t}</span>` : t;
+    if (r.fuente && r.fuente !== 'serif' && CATALOGO_FUENTES[r.fuente]) {
+      est.push(`font-family:${CATALOGO_FUENTES[r.fuente].familia}`);
+    }
+    if (r.tamano && Number.isFinite(+r.tamano)) {
+      est.push(`font-size:${Math.round(+r.tamano)}px`);
+    }
+    let t = esc(r.texto).replace(/\n/g, '<br>');
+    if (r.script === 'sub') t = `<sub>${t}</sub>`;
+    else if (r.script === 'super') t = `<sup>${t}</sup>`;
+    if (est.length) t = `<span style="${est.join(';')}">${t}</span>`;
+    if (r.oculto) t = `<span class="nt-oculto" data-nt-oculto="1">${t}</span>`;
+
+    if (r.enlace && r.enlace.url) {
+      const notaAttr = r.enlace.notaId ? ` data-nt-nota-id="${esc(r.enlace.notaId)}"` : '';
+      t = `<a href="${esc(r.enlace.url)}" target="_blank" rel="noopener noreferrer" data-nt-link-tipo="${esc(r.enlace.tipo || 'web')}"${notaAttr}>${t}</a>`;
+    }
+    if (r.notaAlPie) {
+      t += `<sup class="nt-nota-pie" data-nt-nota-pie="${esc(r.notaAlPie)}">[*]</sup>`;
+    }
+    return t;
   }).join('');
 }
 
 function interiorBloque(runs) {
   const h = runsAHtml(runs);
   if (!runs.length) return '<br>';
-  return runs[runs.length - 1].texto.endsWith('\n') ? `${h}<br>` : h; // marcador para conservar la última línea en blanco
+  return runs[runs.length - 1].texto.endsWith('\n') ? `${h}<br>` : h;
 }
 
-const alineacion = (b) => (b.alinear && b.alinear !== 'izquierda' ? ` style="text-align:${b.alinear === 'centro' ? 'center' : 'right'}"` : '');
+const estiloBloque = (b) => {
+  const est = [];
+  if (b.alinear && b.alinear !== 'izquierda') {
+    est.push(`text-align:${b.alinear === 'centro' ? 'center' : b.alinear === 'derecha' ? 'right' : 'justify'}`);
+  }
+  if (b.interlineado && Number.isFinite(+b.interlineado)) {
+    est.push(`line-height:${b.interlineado}`);
+  }
+  if (b.sangria && Number.isFinite(+b.sangria)) {
+    est.push(`margin-left:${b.sangria * SANGRIA_PASO}em`);
+  }
+  let extraAttrs = '';
+  if (b.estilo) {
+    extraAttrs += ` data-nt-estilo="${esc(b.estilo)}"`;
+  }
+  return (est.length ? ` style="${est.join(';')}"` : '') + extraAttrs;
+};
 
 // relleno: añade un párrafo vacío tras una tabla final, para poder seguir escribiendo debajo.
 export function modeloAHtml(bloques, { relleno = false } = {}) {
@@ -274,6 +497,11 @@ export function modeloAHtml(bloques, { relleno = false } = {}) {
   const pila = [];
   const cerrarListas = (hasta = 0) => { while (pila.length > hasta) out += `</li></${pila.pop()}>`; };
   for (const b of lista) {
+    if (b.tipo === 'saltoPagina' || b.saltoPagina) {
+      cerrarListas();
+      out += '<hr data-nt-salto-pagina="1" class="nt-salto-pagina">';
+      continue;
+    }
     if (b.tipo === 'vineta' || b.tipo === 'numero') {
       const tag = b.tipo === 'numero' ? 'ol' : 'ul';
       const n = Math.min(b.nivel, pila.length);
@@ -282,16 +510,44 @@ export function modeloAHtml(bloques, { relleno = false } = {}) {
         if (pila[n] !== tag) { out += `</li></${pila.pop()}>`; } else out += '</li>';
       }
       while (pila.length < n + 1) { out += `<${tag}>`; pila.push(tag); }
-      out += `<li${alineacion(b)}>${interiorBloque(b.runs)}`;
+      out += `<li${estiloBloque(b)}>${interiorBloque(b.runs)}`;
       continue;
     }
     cerrarListas();
     if (b.tipo === 'tabla') {
-      out += `<table${b.encabezado ? ' data-enc="1"' : ''}><tbody>${b.filas.map((f) => `<tr>${f.map((c) => `<td>${c.runs.length ? interiorBloque(c.runs) : '<br>'}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      let tAttrs = b.encabezado ? ' data-enc="1"' : '';
+      if (b.bordeEstilo) tAttrs += ` data-borde-estilo="${esc(b.bordeEstilo)}"`;
+      if (b.bordeColor) tAttrs += ` data-borde-color="${esc(b.bordeColor)}"`;
+      if (b.bordeGrosor !== undefined) tAttrs += ` data-borde-grosor="${b.bordeGrosor}"`;
+
+      let colgroupHtml = '';
+      if (Array.isArray(b.anchosColumnas) && b.anchosColumnas.length) {
+        const sum = b.anchosColumnas.reduce((acc, v) => acc + v, 0) || 1;
+        colgroupHtml = `<colgroup>${b.anchosColumnas.map((w) => `<col style="width:${Math.round((w / sum) * 10000) / 100}%">`).join('')}</colgroup>`;
+      }
+
+      const filasHtml = b.filas.map((f) => {
+        const celdasHtml = f.map((c) => {
+          if (c.combinada) return '';
+          let attrs = '';
+          if (c.colspan > 1) attrs += ` colspan="${c.colspan}"`;
+          if (c.rowspan > 1) attrs += ` rowspan="${c.rowspan}"`;
+          const estilosTd = [];
+          if (c.fondo) estilosTd.push(`background-color:${c.fondo}`);
+          if (c.alinearV === 'centro') estilosTd.push('vertical-align:middle');
+          else if (c.alinearV === 'abajo') estilosTd.push('vertical-align:bottom');
+          if (estilosTd.length) attrs += ` style="${estilosTd.join(';')}"`;
+          const contenido = c.runs.length ? interiorBloque(c.runs) : '<br>';
+          return `<td${attrs}>${contenido}</td>`;
+        }).join('');
+        return `<tr>${celdasHtml}</tr>`;
+      }).join('');
+
+      out += `<table${tAttrs}>${colgroupHtml}<tbody>${filasHtml}</tbody></table>`;
       continue;
     }
     const tag = b.tipo === 'titulo1' ? 'h1' : b.tipo === 'titulo2' ? 'h2' : b.tipo === 'titulo3' ? 'h3' : 'p';
-    out += `<${tag}${alineacion(b)}>${interiorBloque(b.runs)}</${tag}>`;
+    out += `<${tag}${estiloBloque(b)}>${interiorBloque(b.runs)}</${tag}>`;
   }
   cerrarListas();
   if (!lista.length || (relleno && lista[lista.length - 1].tipo === 'tabla')) out += '<p><br></p>';

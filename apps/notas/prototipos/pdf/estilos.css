@@ -1,0 +1,418 @@
+/* Estilos del prototipo de lectura PDF · Etapa 19 · Paso 1 */
+:root {
+  --color-fondo: #0f172a;
+  --color-panel: #1e293b;
+  --color-panel-borde: #334155;
+  --color-texto: #f8fafc;
+  --color-texto-mutado: #94a3b8;
+  --color-primario: #3b82f6;
+  --color-primario-hover: #2563eb;
+  --color-exito: #10b981;
+  --color-alerta: #f59e0b;
+  --color-error: #ef4444;
+  --fuente-interfaz: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --fuente-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--fuente-interfaz);
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Encabezado */
+.encabezado {
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-panel-borde);
+  padding: 12px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 10;
+}
+
+.encabezado-titulo h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.badge-exito {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* Pestañas */
+.pestanas {
+  display: flex;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--color-panel-borde);
+}
+
+.pestana-btn {
+  background: transparent;
+  color: var(--color-texto-mutado);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pestana-btn:hover {
+  color: #fff;
+}
+
+.pestana-btn.activa {
+  background: var(--color-primario);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Barra de herramientas */
+.barra-herramientas {
+  background: #182234;
+  border-bottom: 1px solid var(--color-panel-borde);
+  padding: 8px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn {
+  background: var(--color-panel);
+  color: #fff;
+  border: 1px solid var(--color-panel-borde);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.btn:hover {
+  background: #2a374d;
+  border-color: #475569;
+}
+
+.btn-primario {
+  background: var(--color-primario);
+  border-color: var(--color-primario-hover);
+}
+
+.btn-primario:hover {
+  background: var(--color-primario-hover);
+}
+
+.btn-exito {
+  background: #059669;
+  border-color: #10b981;
+}
+
+.btn-exito:hover {
+  background: #10b981;
+}
+
+.separador {
+  width: 1px;
+  height: 24px;
+  background: var(--color-panel-borde);
+}
+
+.control-grupo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.control-grupo select {
+  background: var(--color-panel);
+  color: #fff;
+  border: 1px solid var(--color-panel-borde);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+/* HUD de Telemetría */
+.telemetria-hud {
+  background: #0b1120;
+  border-bottom: 1px solid var(--color-panel-borde);
+  padding: 8px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  font-size: 0.8rem;
+}
+
+.telemetria-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.telemetria-label {
+  color: var(--color-texto-mutado);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.telemetria-valor {
+  font-family: var(--fuente-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.telemetria-valor.verde {
+  color: #34d399;
+}
+
+.telemetria-valor.azul {
+  color: #60a5fa;
+}
+
+.telemetria-valor.ambar {
+  color: #fbbf24;
+}
+
+/* Contenedor principal de contenidos */
+.contenido-principal {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+}
+
+.vista-panel {
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+
+.vista-panel.activa {
+  display: flex;
+}
+
+/* Visor de PDF (desplazamiento vertical continuo) */
+#panel-visor {
+  flex-direction: column;
+}
+
+.visor-scroll-contenedor {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 30px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  background: #090d16;
+  scroll-behavior: auto;
+}
+
+/* Páginas y Placeholders */
+.pdf-pagina-contenedor {
+  position: relative;
+  background: #ffffff;
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: width 0.1s ease, height 0.1s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.pdf-pagina-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+
+.pdf-pagina-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  color: #64748b;
+  border: 2px dashed #cbd5e1;
+}
+
+.pdf-placeholder-info {
+  text-align: center;
+}
+
+.pdf-placeholder-num {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #475569;
+  display: block;
+}
+
+.pdf-placeholder-sub {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* Pestaña de Comparativa e Informe */
+.documento-informe {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px;
+  max-width: 1000px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.documento-informe h2 {
+  font-size: 1.5rem;
+  margin-bottom: 16px;
+  color: #fff;
+  border-bottom: 1px solid var(--color-panel-borde);
+  padding-bottom: 8px;
+}
+
+.documento-informe h3 {
+  font-size: 1.15rem;
+  margin: 20px 0 10px 0;
+  color: #93c5fd;
+}
+
+.documento-informe p,
+.documento-informe li {
+  color: #cbd5e1;
+  font-size: 0.92rem;
+  margin-bottom: 8px;
+}
+
+.documento-informe ul {
+  padding-left: 24px;
+  margin-bottom: 16px;
+}
+
+/* Tablas comparativas */
+.tabla-comparativa {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  background: var(--color-panel);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-panel-borde);
+}
+
+.tabla-comparativa th,
+.tabla-comparativa td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-panel-borde);
+  font-size: 0.88rem;
+}
+
+.tabla-comparativa th {
+  background: #0f172a;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.tabla-comparativa tr:last-child td {
+  border-bottom: none;
+}
+
+.tabla-comparativa .resaltado-verde {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.tabla-comparativa .resaltado-rojo {
+  color: #f87171;
+}
+
+/* Tarjetas de conclusiones */
+.tarjeta-destacada {
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 4px solid var(--color-primario);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 20px 0;
+}
+
+.tarjeta-riesgo {
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 4px solid var(--color-error);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin: 20px 0;
+}
+
+.tarjeta-destacada strong,
+.tarjeta-riesgo strong {
+  color: #fff;
+}
+
+/* Barra de progreso */
+.barra-progreso-contenedor {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.barra-progreso-fill {
+  height: 100%;
+  background: var(--color-primario);
+  width: 0%;
+  transition: width 0.15s ease;
+}
