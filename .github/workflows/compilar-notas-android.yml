@@ -49,10 +49,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-        with:
-          # Por defecto esta acción intenta instalar el paquete «tools», que Google ya no publica y hace fallar el paso.
-          packages: platform-tools
+      # Se usa el SDK de Android que ya trae el servidor de GitHub. La acción «android-actions/setup-android» se quitó:
+      # intentaba instalar un paquete «tools» que Google ya no publica y hacía fallar toda la compilación.
+      - name: Preparar el SDK de Android
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          ls "$ANDROID_HOME/cmdline-tools"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -64,7 +70,7 @@ jobs:
 
       - name: Instalar el NDK de Android
         run: |
-          sdkmanager --install "ndk;${NDK}" "platforms;android-35"
+          sdkmanager --install "ndk;${NDK}" "platforms;android-35" "build-tools;35.0.0"
           echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK}" >> "$GITHUB_ENV"
 
       - name: Bibliotecas de Linux
