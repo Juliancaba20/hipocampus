@@ -155,6 +155,27 @@
     overflow: hidden;
   }
 
+  .nt-pagina-impresa--carta {
+    width: 215.9mm;
+    height: 279.4mm;
+  }
+  .nt-pagina-impresa--a5 {
+    width: 148mm;
+    height: 210mm;
+  }
+  .nt-pagina-impresa--horizontal {
+    width: 297mm;
+    height: 210mm;
+  }
+  .nt-pagina-impresa--carta.nt-pagina-impresa--horizontal {
+    width: 279.4mm;
+    height: 215.9mm;
+  }
+  .nt-pagina-impresa--a5.nt-pagina-impresa--horizontal {
+    width: 210mm;
+    height: 148mm;
+  }
+
   .nt-pagina-impresa:last-child {
     page-break-after: auto;
     break-after: auto;
@@ -188,6 +209,21 @@
     font-family: var(--nt-fuente-base, system-ui, sans-serif);
     text-align: center;
     pointer-events: none;
+  }
+
+  .nt-pagina-impresa__notas-pie {
+    position: absolute;
+    bottom: 12mm;
+    left: 18mm;
+    right: 18mm;
+    border-top: 1px solid #94a3b8;
+    padding-top: 2mm;
+    font-size: 7.5pt;
+    color: #334155;
+    font-family: var(--nt-fuente-base, system-ui, sans-serif);
+    line-height: 1.35;
+    pointer-events: none;
+    z-index: 5;
   }
 }
 

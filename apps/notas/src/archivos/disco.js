@@ -177,8 +177,20 @@ export function crearGestorDisco({
 async function crearApiTauri() {
   const [dialogo, fs] = await Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-fs')]);
   const filtroNota = { name: 'Documento de Anotomía', extensions: ['nota'] };
+  const filtrosGuardado = {
+    nota: filtroNota,
+    'anotomia-respaldo': { name: 'Copia de seguridad de Anotomía', extensions: ['anotomia-respaldo'] },
+    pdf: { name: 'Documento PDF', extensions: ['pdf'] },
+    png: { name: 'Imagen PNG', extensions: ['png'] },
+    jpg: { name: 'Imagen JPG', extensions: ['jpg', 'jpeg'] },
+  };
   return {
-    elegirDondeGuardar: ({ nombre }) => dialogo.save({ title: 'Guardar documento', defaultPath: nombre, filters: [filtroNota] }),
+    // El filtro del diálogo sigue la extensión del nombre (.nota, copia de seguridad, PDF o imagen)
+    elegirDondeGuardar: ({ nombre }) => {
+      const ext = String(nombre || '').split('.').pop().toLowerCase();
+      const filtro = filtrosGuardado[ext];
+      return dialogo.save({ title: 'Guardar archivo', defaultPath: nombre, filters: filtro ? [filtro] : undefined });
+    },
     elegirArchivos: async () => {
       const r = await dialogo.open({
         title: 'Abrir documento', multiple: true,

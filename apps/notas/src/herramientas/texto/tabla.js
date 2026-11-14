@@ -122,6 +122,101 @@ export function alternarEncabezado(td) {
   if (t.getAttribute('data-enc') === '1') t.removeAttribute('data-enc'); else t.setAttribute('data-enc', '1');
 }
 
+// Combina la celda actual con la celda contigua a la derecha
+export function combinarCeldas(win, td) {
+  if (!td) return;
+  const sig = td.nextElementSibling;
+  if (!sig || (sig.tagName !== 'TD' && sig.tagName !== 'TH')) return;
+  const cs1 = parseInt(td.getAttribute('colspan'), 10) || 1;
+  const cs2 = parseInt(sig.getAttribute('colspan'), 10) || 1;
+  td.setAttribute('colspan', String(cs1 + cs2));
+
+  // Trasladar contenido de la celda vecina si no está vacío
+  const nodos = [...sig.childNodes].filter((n) => !(n.tagName === 'BR' && sig.childNodes.length === 1));
+  if (nodos.length) {
+    const espacio = td.ownerDocument.createTextNode(' ');
+    td.appendChild(espacio);
+    nodos.forEach((n) => td.appendChild(n));
+  }
+  sig.remove();
+  mover(win, td);
+}
+
+// Divide una celda previamente combinada restableciendo celdas unitarias
+export function dividirCelda(win, td) {
+  if (!td) return;
+  const cs = parseInt(td.getAttribute('colspan'), 10) || 1;
+  const rs = parseInt(td.getAttribute('rowspan'), 10) || 1;
+  if (cs <= 1 && rs <= 1) return;
+
+  td.removeAttribute('colspan');
+  td.removeAttribute('rowspan');
+
+  const doc = td.ownerDocument;
+  let cursor = td;
+  for (let k = 1; k < cs; k++) {
+    const nueva = celdaVacia(doc);
+    cursor.parentNode.insertBefore(nueva, cursor.nextSibling);
+    cursor = nueva;
+  }
+  mover(win, td);
+}
+
+// Configura el color de fondo de la celda activa
+export function establecerFondoCelda(td, colorHex) {
+  if (!td) return;
+  if (colorHex) {
+    td.style.backgroundColor = colorHex;
+  } else {
+    td.style.backgroundColor = '';
+    td.removeAttribute('bgcolor');
+  }
+}
+
+// Configura la alineación vertical ('arriba', 'centro', 'abajo')
+export function establecerAlineacionVertical(td, alinearV) {
+  if (!td) return;
+  if (alinearV === 'centro') td.style.verticalAlign = 'middle';
+  else if (alinearV === 'abajo') td.style.verticalAlign = 'bottom';
+  else td.style.verticalAlign = 'top';
+}
+
+// Configura el estilo de borde de la tabla ('todos', 'grilla', 'externo', 'filas', 'ninguno')
+export function establecerBordeTabla(td, { estilo = 'todos', color = null, grosor = 1 } = {}) {
+  const t = tablaDe(td);
+  if (!t) return;
+  if (estilo) t.setAttribute('data-borde-estilo', estilo);
+  if (color) t.setAttribute('data-borde-color', color);
+  if (grosor !== undefined) t.setAttribute('data-borde-grosor', String(grosor));
+}
+
+// Ajusta el ancho relativo de la columna activa
+export function ajustarAnchoColumna(td, factorDelta = 0.1) {
+  const t = tablaDe(td);
+  if (!t) return;
+  const colIdx = td.cellIndex;
+  const totalCols = td.parentElement.cells.length;
+  if (totalCols <= 1) return;
+
+  let colgroup = t.querySelector('colgroup');
+  if (!colgroup) {
+    colgroup = t.ownerDocument.createElement('colgroup');
+    for (let i = 0; i < totalCols; i++) {
+      const col = t.ownerDocument.createElement('col');
+      col.style.width = `${Math.round(100 / totalCols)}%`;
+      colgroup.appendChild(col);
+    }
+    t.insertBefore(colgroup, t.firstElementChild);
+  }
+
+  const cols = [...colgroup.children];
+  if (cols[colIdx]) {
+    const wActual = parseFloat(cols[colIdx].style.width) || (100 / totalCols);
+    const wNuevo = Math.max(10, Math.min(80, wActual + factorDelta * 100));
+    cols[colIdx].style.width = `${wNuevo}%`;
+  }
+}
+
 // Tab / Mayús+Tab: celda siguiente o anterior; al salir de la última se agrega una fila.
 export function celdaVecina(win, td, atras = false) {
   const t = tablaDe(td);

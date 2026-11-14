@@ -44,12 +44,17 @@ export async function listarBlobs() {
 
 // Elimina blobs que ya no están referenciados. Se usa al iniciar, cuando el historial anterior ya no existe.
 export function purgarBlobsSinReferencia() {
-  return transaccion(['elementos', 'blobs'], 'readwrite', async (tx) => {
-    const [elementos, blobs] = await Promise.all([
+  return transaccion(['elementos', 'blobs', 'documentos'], 'readwrite', async (tx) => {
+    const [elementos, blobs, documentos] = await Promise.all([
       pedido(tx.objectStore('elementos').getAll()),
       pedido(tx.objectStore('blobs').getAll()),
+      pedido(tx.objectStore('documentos').getAll()),
     ]);
     const usados = new Set(elementos.filter((el) => el.tipo === 'imagen' && el.datos?.blobId).map((el) => el.datos.blobId));
+    for (const doc of documentos) {
+      if (doc?.pdfBlobId) usados.add(doc.pdfBlobId);
+      if (doc?.config?.pdfBlobId) usados.add(doc.config.pdfBlobId);
+    }
     let eliminados = 0;
     for (const blob of blobs) if (!usados.has(blob.id)) { tx.objectStore('blobs').delete(blob.id); eliminados++; }
     return eliminados;

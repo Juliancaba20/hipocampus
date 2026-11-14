@@ -5,6 +5,10 @@
   --nt-azul-oscuro: #17348f;
   --nt-azul-claro: #e8eefc;
   --nt-tinta: #14192b;
+  --nt-texto: var(--nt-tinta); /* alias: varias hojas de estilo lo usan */
+  --nt-borde: var(--nt-linea);
+  --nt-borde-suave: var(--nt-linea);
+  --nt-hud-alto: 44px;
   --nt-suave: #5b6580;
   --nt-papel: #f6f8fd;
   --nt-blanco: #ffffff;
@@ -13,6 +17,7 @@
   --nt-error: #b3261e;
   --nt-ok: #1f7a45;
 
+  --nt-fuente-base: var(--nt-fuente);
   --nt-fuente: 'Bricolage Grotesque Variable', system-ui, sans-serif;
   --nt-fuente-titulo: 'Bricolage Grotesque Variable', system-ui, sans-serif;
   --nt-fuente-notas: 'Source Serif 4 Variable', Georgia, serif; /* texto de las notas y símbolos */

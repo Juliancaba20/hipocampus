@@ -1,8 +1,14 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 // Ventana emergente accesible: se cierra con Escape o tocando el fondo.
-export function Modal({ titulo, alCerrar, children, ancho = 520 }) {
+export function Modal({ titulo, alCerrar: alCerrarProp, children, ancho = 520 }) {
   const ref = useRef(null);
+  // La función de cierre llega «nueva» en cada render del padre: se guarda en una referencia para que la ventana
+  // no vuelva a enfocar su primer botón (ni reinicie sus eventos) cada vez que el padre se redibuja.
+  const cierreRef = useRef(alCerrarProp);
+  cierreRef.current = alCerrarProp;
+  const alCerrar = useRef(() => cierreRef.current?.()).current;
   useEffect(() => {
     const previo = document.activeElement;
     const el = ref.current;
@@ -33,7 +39,7 @@ export function Modal({ titulo, alCerrar, children, ancho = 520 }) {
     document.addEventListener('keydown', tecla);
     return () => { document.removeEventListener('keydown', tecla); previo?.focus?.(); };
   }, [alCerrar]);
-  return (
+  const ventana = (
     <div className="nt-fondo" onMouseDown={(e) => { if (e.target === e.currentTarget) alCerrar(); }}>
       <div className="nt-ventana" role="dialog" aria-modal="true" aria-label={titulo} ref={ref} style={{ width: `min(${ancho}px, 100%)` }}>
         <h2 className="nt-sub">{titulo}</h2>
@@ -41,6 +47,16 @@ export function Modal({ titulo, alCerrar, children, ancho = 520 }) {
       </div>
     </div>
   );
+  // Se dibuja directamente en <body>: si se abre desde una barra con «transform» (como la de propiedades), la
+  // posición fija quedaba atrapada dentro de esa barra y la ventana no se veía.
+  return <EnPortal>{ventana}</EnPortal>;
+}
+
+// Dibuja su contenido directamente en <body> pero dentro de un contenedor «nt-raiz», que es el que define la tipografía,
+// el color y los estilos base de la app (si no, las ventanas salían con la tipografía del navegador).
+export function EnPortal({ children }) {
+  if (typeof document === 'undefined') return children;
+  return createPortal(<div className="nt-raiz nt-portal">{children}</div>, document.body);
 }
 
 export function Confirmar({ titulo, texto, textoBoton, alConfirmar, alCerrar }) {

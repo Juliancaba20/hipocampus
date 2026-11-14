@@ -1,11 +1,14 @@
 import { crearElemento, nuevoId, TIPOS_ELEMENTO } from '../almacen/modelo.js';
 import { guardarBlob } from '../almacen/blobs.js';
-import { camaraInicial, encuadrar, mover, mundoAPantalla, pantallaAMundo, zoomEn } from './camara.js';
-import { dibujar } from './dibujo.js';
+import { camaraInicial, encuadrar, mover, pantallaAMundo, visibleEnMundo, zoomEn } from './camara.js';
+import { dibujar, recorteImagenSeguro } from './dibujo.js';
 import { invertir } from './historial.js';
 import {
-  CURSOR_MANIJA, FORMAS, borrarZona, cajaDeTrazo, esLinea, esRedimensionable, lineaDesdeExtremos, manijaEn, manijas, moverExtremo, normalizarRect, puntoEnElemento, puntoEnTrazo,
-  rectsSeCruzan, redimensionar, simplificar, trasladar,
+  CURSOR_MANIJA, FORMAS, alinearElementos, borrarZona, cajaDeTrazo, calcularSnapGuias,
+  distribuirElementos, elementoTocadoPorLazo, esLinea, esRedimensionable, escalarElemento,
+  escalarSimbolo, escalarTrazo, extremosLinea, lineaDesdeExtremos, manijaEn, manijas,
+  normalizarRect, puntoEnElemento, puntoEnTrazo, rectsSeCruzan, redimensionar, simplificar,
+  trasladar, unirRects,
 } from './geometria.js';
 import { Minimapa } from './minimapa.js';
 import { alinearPunto, destelloVigente, guiaActiva, normalizarRenglones, opacidadRenglones } from './renglones.js';
@@ -15,8 +18,21 @@ import { bloquesDe, datosTextoNuevo, esVacio, modeloATexto, textoAModelo } from 
 import { htmlAModelo, modeloAHtml } from '../herramientas/texto/html.js';
 import { COLOR_TEXTO } from '../herramientas/texto/estilo.js';
 import { procesarImagen } from '../herramientas/imagenes/procesar.js';
-import { liberarImagenesCanvas } from '../herramientas/imagenes/recursos.js';
-import { recorteImagenSeguro } from './dibujo.js';
+import { liberarImagenesCanvas, prepararImagenes } from '../herramientas/imagenes/recursos.js';
+import { guardarEnPortapapeles, hayContenidoEnPortapapeles, obtenerDePortapapeles, prepararElementosParaPegar, TIPO_MIME_ELEMENTOS } from './portapapeles.js';
+import {
+  actualizarConectoresDeElementos, buscarPuertoCercano, calcularPuertosElemento, desanclarConectoresDeIdsBorrados,
+} from './conectores.js';
+import { ramificarNodoMapaConceptual } from '../herramientas/mapaConceptual.js';
+import {
+  TIPOS_INSTRUMENTO,
+  crearRegla,
+  crearEscuadra,
+  crearTransportador,
+  aplicarSnapInstrumento,
+  mundoALocal,
+} from '../herramientas/precision/instrumentos.js';
+import { reconocerForma, construirLineaRecta } from '../herramientas/precision/reconocimientoFormas.js';
 
 const PALETA = ['#cfdcff', '#ffe9a8', '#c9f0d8', '#ffd3dc', '#e3d6ff', '#d4eef7'];
 const BORDES = ['#2350d8', '#b8860b', '#1f7a45', '#c2315a', '#6a3fc2', '#1b7a99'];
@@ -35,10 +51,11 @@ const HERRAMIENTAS_DE_MANO = ['lapiz', 'resaltador', 'borrador'];
 // Motor del lienzo: cámara, selección, gestos (mouse, dedo, pellizco) e historial.
 // No conoce React: la interfaz lo maneja con sus métodos y escucha `alCambiar` / `alCamara`.
 export class Lienzo {
-  constructor(canvas, { escena, camara, documentoId = '', ajustes, alCambiar, alCamara, alAjustes, alImagenError, capaTexto, escritura = 'ambos', renglones, alRenglones, contenedor = null, marco = null }) {
+  constructor(canvas, { escena, camara, documentoId = '', ajustes, alCambiar, alCamara, alAjustes, alImagenError, capaTexto, escritura = 'ambos', renglones, alRenglones, contenedor = null, marco = null, anchoTextoNuevo = null }) {
     this.canvas = canvas;
     this.documentoId = documentoId;
     this.contenedor = contenedor;
+    this.anchoTextoNuevo = anchoTextoNuevo;
     this.marco = marco; // marco delimitador del documento (por ejemplo, tarjetas o páginas)
     this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true }); // desynchronized: menor latencia donde el navegador lo permite
     this.escena = escena;
@@ -76,16 +93,29 @@ export class Lienzo {
     this.cursor = null;
     this._cache = null;
     this.seleccion = new Set();
+    this.fijarProporcion = false;
+    this.imanActivo = false;
+    this.guiasActivas = [];
+    this.resaltadosBusqueda = [];
+    this.coincidenciaActiva = null;
     this._recorteEnCurso = null;
+    this.cara = 'anverso';
     this.punteros = new Map();
     this.gesto = null;
     this.pellizco = null;
     this.espacio = false;
     this.ancho = 1; this.alto = 1; this.dpr = 1;
     this.dibujados = 0;
+    this.estilos = null;
     this._ui = '';
     this._pendiente = false;
     this._contadorFigura = 0;
+    this.instrumentoPrecision = null;
+    this.pellizcoInstrumento = null;
+    this.correccionFormasActiva = false;
+    this.tiempoEsperaCorreccionMs = 380;
+    this._muestrasLatenciaSinSnap = [];
+    this._muestrasLatenciaConSnap = [];
 
     this._eventos = [
       [canvas, 'pointerdown', (e) => this._abajo(e)],
@@ -113,6 +143,7 @@ export class Lienzo {
       }],
       [window, 'paste', (e) => this._pegar(e)],
       [window, 'copy', (e) => this._copiar(e)],
+      [window, 'cut', (e) => this._cortar(e)],
     ];
     this._eventos.forEach(([o, t, f, op]) => o.addEventListener(t, f, op));
     this._desuscribir = escena.suscribir(() => { this._limpiarSeleccion(); this.pedirDibujo(); this._notificar(); });
@@ -161,6 +192,8 @@ export class Lienzo {
   }
 
   setContenedor(c) { this.contenedor = c; }
+  setCara(c) { this.cara = c === 'reverso' ? 'reverso' : 'anverso'; }
+  _obtenerCara() { return this.cara === 'reverso' ? 'reverso' : 'anverso'; }
   _obtenerContenedor(y = null) {
     if (typeof this.contenedor === 'function') {
       return this.contenedor(y != null ? y : (this.camara.y + this.alto / (2 * (this.camara.zoom || 1))));
@@ -168,12 +201,18 @@ export class Lienzo {
     return this.contenedor;
   }
   setMarco(m) { this.marco = m; this.pedirDibujo(); }
+  setProveedorFondoMarco(fn) { this.proveedorFondoMarco = fn; this.pedirDibujo(); }
+  setEstilos(estilos) {
+    this.estilos = estilos;
+    this.refrescarTextos();
+    this.pedirDibujo();
+  }
 
   _dibujar() {
     this._pendiente = false;
     if (this._destruido) return;
     const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
-    const unico = this._unicoRedimensionable();
+    const cajaRedim = this._cajaRedimensionable();
     const g = this.gesto;
     const activo = g && g.tipo === 'dibujar' ? { puntos: g.puntos, color: g.color, grosor: g.grosor, opacidad: g.opacidad, variable: g.variable } : null;
     const res = dibujar(this.ctx, {
@@ -184,8 +223,19 @@ export class Lienzo {
       guiaTexto: this.renglones,
       alImagenLista: () => this.pedirDibujo(),
       marco: g && (g.tipo === 'marco' || g.tipo === 'texto') ? normalizarRect(g.inicio.x, g.inicio.y, g.actual.x, g.actual.y) : null,
-      mostrarManijas: unico && this.herramienta === 'seleccionar' && (!g || g.tipo === 'redimensionar') ? unico : null,
+      lazo: g && g.tipo === 'lazo' ? g.puntos : null,
+      mostrarManijas: cajaRedim && (this.herramienta === 'seleccionar' || this.herramienta === 'lazo') && (!g || g.tipo === 'redimensionar') ? cajaRedim : null,
       marcoDocumento: this.marco,
+      alPedirFondoMarco: this.proveedorFondoMarco ? (num, zoom) => this.proveedorFondoMarco(num, zoom) : null,
+      guiasSnap: this.guiasActivas,
+      resaltadosBusqueda: this.resaltadosBusqueda,
+      coincidenciaActiva: this.coincidenciaActiva,
+      contenedor: typeof this.contenedor === 'string' ? this.contenedor : null,
+      estilos: this.estilos,
+      fondoDocumento: this.fondoDocumento || null,
+      puertosConector: this.puertosConector || null,
+      puertoConectorActivo: this.puertoConectorActivo || null,
+      instrumentoPrecision: this.instrumentoPrecision || null,
     });
     if (typeof performance !== 'undefined') this.msDibujo = performance.now() - t0;
     if (this._destello) { if (destelloVigente(this._destello, this._ahora())) this.pedirDibujo(); else this._destello = null; } // sigue la animación
@@ -203,15 +253,25 @@ export class Lienzo {
 
   // Estilo de las figuras para el panel: el de la figura seleccionada o, si no hay, el de las nuevas.
   _estiloFigura() {
-    const sel = [...this.seleccion].map((id) => this.escena.get(id)).filter((e) => e && e.tipo === 'figura');
+    const sel = [...this.seleccion].map((id) => this.escena.get(id)).filter((e) => e && (e.tipo === 'figura' || e.tipo === 'icono'));
     const f = sel[0];
     const a = this.ajustes.figura;
     return {
       seleccionadas: sel.length,
+      forma: f ? (f.datos?.forma || (f.tipo === 'icono' ? 'icono' : null)) : null,
       linea: f ? esLinea(f) : this.herramienta === 'linea' || this.herramienta === 'flecha',
       borde: f ? f.datos.borde || a.borde : a.borde,
       relleno: f ? f.datos.relleno || null : a.relleno,
       grosor: f ? Math.max(1, Math.min(40, Math.round(f.datos.grosor || 2))) : a.grosor,
+      estiloBorde: f ? f.datos.estiloBorde || 'solido' : a.estiloBorde || 'solido',
+      radioEsquinas: f ? f.datos.radioEsquinas || 0 : a.radioEsquinas || 0,
+      opacidad: f && f.datos.opacidad !== undefined ? f.datos.opacidad : 1,
+      sombra: f && f.datos.sombra ? f.datos.sombra : null,
+      tipoConector: f ? (f.datos?.tipoConector || 'recto') : (a.tipoConector || 'recto'),
+      anclado: f ? (!!f.datos?.anclajeInicio || !!f.datos?.anclajeFin) : false,
+      texto: f ? (f.datos?.texto || f.datos?.etiqueta || '') : '',
+      enlace: f ? (f.datos?.enlace || f.enlace || null) : null,
+      elementoId: f?.id || null,
     };
   }
 
@@ -223,13 +283,44 @@ export class Lienzo {
       zoom: Math.round(this.camara.zoom * 100),
       puedeDeshacer: this.escena.historial.puedeDeshacer() || !!this.editor || !!this.historialExtra?.puedeDeshacer(),
       puedeRehacer: this.escena.historial.puedeRehacer() || !!this.editor || !!this.historialExtra?.puedeRehacer(),
+      puedePegar: hayContenidoEnPortapapeles(),
+      puedeCopiar: this.seleccion.size > 0 && !this.editor,
+      fijarProporcion: this.fijarProporcion,
       texto: this.editor ? this.editor.estadoActual() : null,
       seleccionados: this.seleccion.size,
+      // Nota a la que está enlazado el elemento seleccionado (solo con un elemento seleccionado)
+      enlaceSeleccion: unico ? (unico.datos?.enlace || unico.enlace || null) : null,
       textoSeleccionado: unico?.tipo === 'texto'
         ? { id: unico.id, x: unico.x, y: unico.y, ancho: unico.ancho, alto: unico.alto }
         : null,
       imagenSeleccionada: unico?.tipo === 'imagen'
-        ? { id: unico.id, recorte: recorteImagenSeguro(unico.datos.recorte), nombre: unico.datos.nombre || 'Imagen' }
+        ? {
+            id: unico.id,
+            recorte: recorteImagenSeguro(unico.datos.recorte),
+            nombre: unico.datos.nombre || 'Imagen',
+            marco: unico.datos.marco || 'ninguno',
+            radioEsquinas: unico.datos.radioEsquinas,
+            borde: unico.datos.borde,
+            grosor: unico.datos.grosor,
+            estiloBorde: unico.datos.estiloBorde,
+            opacidad: unico.datos.opacidad,
+            sombra: unico.datos.sombra,
+            mascaras: Array.isArray(unico.datos.mascaras) ? unico.datos.mascaras : [],
+            enlace: unico.datos.enlace || unico.enlace || null,
+            elemento: unico,
+          }
+        : null,
+      iconoSeleccionado: unico?.tipo === 'icono'
+        ? {
+            id: unico.id,
+            nombre: unico.datos.nombre || 'Ícono',
+            color: unico.datos.color,
+            borde: unico.datos.borde,
+            grosor: unico.datos.grosor,
+            estiloBorde: unico.datos.estiloBorde,
+            opacidad: unico.datos.opacidad,
+            sombra: unico.datos.sombra,
+          }
         : null,
       elementos: this.escena.mapa.size,
       dibujados: this.dibujados,
@@ -240,6 +331,15 @@ export class Lienzo {
       renglones: this.renglones,
       fueraDeVista: !this._hayContenidoVisible(),
       figura: this._estiloFigura(),
+      imanActivo: this.imanActivo,
+      puedeAgrupar: [...this.seleccion].filter((id) => !this.escena.get(id)?.bloqueado).length >= 2,
+      puedeDesagrupar: [...this.seleccion].some((id) => this.escena.get(id)?.grupoId && !this.escena.get(id)?.bloqueado),
+      algunoBloqueado: [...this.seleccion].some((id) => this.escena.get(id)?.bloqueado),
+      todosBloqueados: this.seleccion.size > 0 && [...this.seleccion].every((id) => this.escena.get(id)?.bloqueado),
+      puedeAlinear: [...this.seleccion].filter((id) => !this.escena.get(id)?.bloqueado).length >= 2,
+      puedeDistribuir: [...this.seleccion].filter((id) => !this.escena.get(id)?.bloqueado).length >= 3,
+      instrumentoPrecision: this.instrumentoPrecision,
+      correccionFormasActiva: this.correccionFormasActiva,
     };
     const clave = JSON.stringify(ui);
     if (clave !== this._ui) { this._ui = clave; this.alCambiar(ui); }
@@ -303,15 +403,48 @@ export class Lienzo {
     }
     const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TEXTO, {
       x: ex, y: ey, ancho, alto: layoutDe(datos, ancho, undefined, this._opcionesLayout(datos)).alto,
-      z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(ey), datos,
+      z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(ey), cara: this._obtenerCara(), datos,
     });
     this._abrirEditor(el, true, undefined, true);
   }
 
+  _cajaRedimensionable() {
+    if (this.seleccion.size === 0) return null;
+    const tieneBloqueado = [...this.seleccion].some((id) => this.escena.get(id)?.bloqueado);
+    if (tieneBloqueado) return null;
+    if (this.seleccion.size === 1) {
+      const el = this.escena.get([...this.seleccion][0]);
+      return el && esRedimensionable(el) ? el : null;
+    }
+    const elementos = [...this.seleccion].map((id) => this.escena.get(id)).filter(Boolean);
+    if (!elementos.length) return null;
+    const caja = unirRects(elementos);
+    if (!caja) return null;
+    return {
+      x: caja.x,
+      y: caja.y,
+      ancho: caja.ancho,
+      alto: caja.alto,
+      tipo: 'grupo',
+      esGrupo: true,
+      elementos,
+    };
+  }
+
   _unicoRedimensionable() {
-    if (this.seleccion.size !== 1) return null;
-    const el = this.escena.get([...this.seleccion][0]);
-    return el && esRedimensionable(el) ? el : null;
+    return this._cajaRedimensionable();
+  }
+
+  toggleFijarProporcion() {
+    this.fijarProporcion = !this.fijarProporcion;
+    this._notificar();
+    this.pedirDibujo();
+  }
+
+  setFijarProporcion(v) {
+    this.fijarProporcion = !!v;
+    this._notificar();
+    this.pedirDibujo();
   }
 
   _elementoEn(mundo, tol) {
@@ -326,7 +459,7 @@ export class Lienzo {
     else if (this.herramienta === 'mano' || this.espacio) c = 'grab';
     else if (this.herramienta === 'borrador') c = 'none';
     else if (this.herramienta === 'texto') c = 'text';
-    else if (HERRAMIENTAS_DE_MANO.includes(this.herramienta) || FORMAS.includes(this.herramienta)) c = 'crosshair';
+    else if (HERRAMIENTAS_DE_MANO.includes(this.herramienta) || FORMAS.includes(this.herramienta) || this.herramienta === 'lazo') c = 'crosshair';
     else if (sobre) c = sobre;
     this.canvas.style.cursor = c;
   }
@@ -352,13 +485,55 @@ export class Lienzo {
     if (this.punteros.size === 2) {
       this._cancelarGesto();
       const [a, b] = [...this.punteros.values()];
-      this.pellizco = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, centro: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+      const centroPantalla = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const centroMundo = this._mundo(centroPantalla);
+
+      if (this.instrumentoPrecision?.activo && this._puntoCercaInstrumento(centroMundo, 60 / this.camara.zoom)) {
+        this.pellizcoInstrumento = {
+          centroMundo,
+          distDedos: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          anguloDedos: Math.atan2(b.y - a.y, b.x - a.x),
+          anguloInicialInst: this.instrumentoPrecision.angulo,
+          instX: this.instrumentoPrecision.x,
+          instY: this.instrumentoPrecision.y,
+        };
+        this.pellizco = null;
+        this._cursor();
+        return;
+      }
+
+      this.pellizcoInstrumento = null;
+      this.pellizco = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, centro: centroPantalla };
       this._cursor();
       return;
     }
     if (this.punteros.size > 2) return;
     e.preventDefault?.();
     const mundo = this._mundo(p);
+
+    if (this.instrumentoPrecision?.activo) {
+      if (this._puntoEnCentroDial(mundo)) {
+        const dx = mundo.x - this.instrumentoPrecision.x;
+        const dy = mundo.y - this.instrumentoPrecision.y;
+        this.gesto = {
+          tipo: 'rotar_instrumento',
+          pointerId: e.pointerId,
+          anguloBase: this.instrumentoPrecision.angulo,
+          anguloInicio: Math.atan2(dy, dx),
+        };
+        return;
+      }
+      if ((this.herramienta === 'seleccionar' || this.herramienta === 'mano') && this._puntoCercaInstrumento(mundo, 8 / this.camara.zoom)) {
+        this.gesto = {
+          tipo: 'mover_instrumento',
+          pointerId: e.pointerId,
+          inicioMundo: mundo,
+          instX: this.instrumentoPrecision.x,
+          instY: this.instrumentoPrecision.y,
+        };
+        return;
+      }
+    }
     const tactil = e.pointerType !== 'mouse';
     const manoLibre = HERRAMIENTAS_DE_MANO.includes(this.herramienta);
     const dedoMueve = tactil && e.pointerType === 'touch' && manoLibre && !this.dedoDibuja;
@@ -370,6 +545,7 @@ export class Lienzo {
       return;
     }
     if (this.herramienta === 'seleccionar') this._abajoSeleccion(e, p, mundo, tactil);
+    else if (this.herramienta === 'lazo') this._abajoLazo(e, p, mundo, tactil);
     else if (this.herramienta === 'borrador') this._iniciarBorrar(e, p, mundo);
     else if (this.herramienta === 'texto') this.gesto = { tipo: 'texto', pointerId: e.pointerId, pointerType: e.pointerType, inicio: mundo, actual: mundo, inicioPantalla: p };
     else if (manoLibre) this._iniciarTrazo(e, p, mundo);
@@ -393,30 +569,104 @@ export class Lienzo {
     gesto.dobleVacio = !!doble;
   }
 
+  _expandirGrupo(ids) {
+    const set = new Set(ids);
+    for (const id of ids) {
+      const el = this.escena.get(id);
+      if (el?.grupoId) {
+        for (const otro of this.escena.mapa.values()) {
+          if (otro.grupoId === el.grupoId) set.add(otro.id);
+        }
+      }
+    }
+    return set;
+  }
+
   _abajoSeleccion(e, p, mundo, tactil) {
     const z = this.camara.zoom;
-    const unico = this._unicoRedimensionable();
-    if (unico) {
-      const m = manijaEn(unico, mundo.x, mundo.y, (tactil ? 22 : 9) / z);
-      if (m) { this.gesto = { tipo: 'redimensionar', manija: m, original: unico, inicio: mundo }; return; }
+    const caja = this._cajaRedimensionable();
+    if (caja) {
+      const m = manijaEn(caja, mundo.x, mundo.y, (tactil ? 22 : 9) / z);
+      if (m) {
+        if (caja.esGrupo) {
+          const origenes = new Map(caja.elementos.map((el) => [el.id, { ...el }]));
+          this.gesto = { tipo: 'redimensionar', manija: m, esGrupo: true, cajaOriginal: { x: caja.x, y: caja.y, ancho: caja.ancho, alto: caja.alto }, origenes, inicio: mundo, cambio: false };
+        } else {
+          this.gesto = { tipo: 'redimensionar', manija: m, esGrupo: false, original: caja, inicio: mundo, cambio: false };
+        }
+        return;
+      }
     }
     const el = this._elementoEn(mundo, (tactil ? 8 : 3) / z);
+    const esMulti = e.shiftKey || e.ctrlKey || e.metaKey;
     if (el) {
-      if (e.shiftKey) { if (this.seleccion.has(el.id)) this.seleccion.delete(el.id); else this.seleccion.add(el.id); }
-      else if (!this.seleccion.has(el.id)) this.seleccion = new Set([el.id]);
-      if (this.seleccion.has(el.id)) {
+      const grupoIds = el.grupoId
+        ? [...this.escena.mapa.values()].filter((x) => x.grupoId === el.grupoId).map((x) => x.id)
+        : [el.id];
+      if (esMulti) {
+        const todosEnSel = grupoIds.every((id) => this.seleccion.has(id));
+        if (todosEnSel) {
+          for (const id of grupoIds) this.seleccion.delete(id);
+        } else {
+          for (const id of grupoIds) this.seleccion.add(id);
+        }
+      } else if (!this.seleccion.has(el.id)) {
+        this.seleccion = new Set(grupoIds);
+      }
+      const tieneBloqueado = [...this.seleccion].some((id) => this.escena.get(id)?.bloqueado);
+      if (this.seleccion.has(el.id) && !tieneBloqueado) {
         const origenes = new Map([...this.seleccion].map((id) => [id, this.escena.get(id)]));
         this.gesto = { tipo: 'mover', origenes, inicio: mundo, inicioPantalla: p, movido: false, sobreTexto: el.tipo === 'texto' ? el.id : null };
       }
     } else {
-      if (!e.shiftKey) this.seleccion = new Set();
+      if (!esMulti) this.seleccion = new Set();
       // Segundo toque seguido en un lugar vacío: al soltar se crea un texto ahí (doble clic o doble toque)
       const u = this._ultimoToqueVacio, ahora = Date.now();
-      const doble = !e.shiftKey && u && ahora - u.t < 450 && Math.hypot(p.x - u.x, p.y - u.y) < 14 && this.puedeHerramienta('texto');
+      const doble = !esMulti && u && ahora - u.t < 450 && Math.hypot(p.x - u.x, p.y - u.y) < 14 && this.puedeHerramienta('texto');
       this._ultimoToqueVacio = doble ? null : { t: ahora, x: p.x, y: p.y };
       this.gesto = { tipo: 'marco', inicio: mundo, actual: mundo, base: new Set(this.seleccion), dobleVacio: !!doble, inicioPantalla: p };
     }
     this._notificar(); this.pedirDibujo();
+  }
+
+  _abajoLazo(e, p, mundo, tactil) {
+    const z = this.camara.zoom;
+    const caja = this._cajaRedimensionable();
+    if (caja) {
+      const m = manijaEn(caja, mundo.x, mundo.y, (tactil ? 22 : 9) / z);
+      if (m) {
+        if (caja.esGrupo) {
+          const origenes = new Map(caja.elementos.map((el) => [el.id, { ...el }]));
+          this.gesto = { tipo: 'redimensionar', manija: m, esGrupo: true, cajaOriginal: { x: caja.x, y: caja.y, ancho: caja.ancho, alto: caja.alto }, origenes, inicio: mundo, cambio: false };
+        } else {
+          this.gesto = { tipo: 'redimensionar', manija: m, esGrupo: false, original: caja, inicio: mundo, cambio: false };
+        }
+        return;
+      }
+    }
+    const el = this._elementoEn(mundo, (tactil ? 8 : 3) / z);
+    const esMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+    const tieneBloqueado = [...this.seleccion].some((id) => this.escena.get(id)?.bloqueado);
+    if (el && this.seleccion.has(el.id) && !tieneBloqueado) {
+      const origenes = new Map([...this.seleccion].map((id) => [id, this.escena.get(id)]));
+      this.gesto = { tipo: 'mover', origenes, inicio: mundo, inicioPantalla: p, movido: false, sobreTexto: el.tipo === 'texto' ? el.id : null };
+      return;
+    }
+    this.gesto = {
+      tipo: 'lazo',
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      puntos: [[mundo.x, mundo.y]],
+      inicio: mundo,
+      inicioPantalla: p,
+      esMulti,
+      base: esMulti ? new Set(this.seleccion) : new Set(),
+    };
+    if (!esMulti) {
+      this.seleccion = new Set();
+    }
+    this._notificar();
+    this.pedirDibujo();
   }
 
   _detectarLapiz() {
@@ -434,7 +684,17 @@ export class Lienzo {
     c.width = this.canvas.width; c.height = this.canvas.height;
     const cx = c.getContext('2d');
     if (!cx) return null;
-    dibujar(cx, { camara: this.camara, ancho: this.ancho, alto: this.alto, dpr: this.dpr, lista: this.escena.lista(), escena: this.escena, seleccion: new Set(), marco: null, mostrarManijas: null, renglones: this._fondoRenglones(), guiaTexto: this.renglones, marcoDocumento: this.marco });
+    // La caché debe contener TODAS las capas de fondo que se ven normalmente; si no, desaparecen mientras se traza:
+    // el PDF de fondo, el color o degradado del documento, el filtro de la tarjeta actual y los instrumentos de precisión.
+    dibujar(cx, {
+      camara: this.camara, ancho: this.ancho, alto: this.alto, dpr: this.dpr, lista: this.escena.lista(), escena: this.escena,
+      seleccion: new Set(), marco: null, mostrarManijas: null, renglones: this._fondoRenglones(), guiaTexto: this.renglones,
+      marcoDocumento: this.marco, estilos: this.estilos,
+      alPedirFondoMarco: this.proveedorFondoMarco ? (num, zoom) => this.proveedorFondoMarco(num, zoom) : null,
+      contenedor: typeof this.contenedor === 'string' ? this.contenedor : null,
+      fondoDocumento: this.fondoDocumento || null,
+      instrumentoPrecision: this.instrumentoPrecision || null,
+    });
     return c;
   }
 
@@ -442,14 +702,44 @@ export class Lienzo {
     const h = this.herramienta, a = this.ajustes[h];
     this.seleccion = new Set();
     const grosor = a.grosor; // en unidades del mundo: igual con cualquier zoom
+
+    let puntoInicial = { x: mundo.x, y: mundo.y };
+    let snappeado = false;
+    let bordeSnap = null;
+
+    if (this.instrumentoPrecision?.activo) {
+      const snap = aplicarSnapInstrumento(this.instrumentoPrecision, mundo, 28 / this.camara.zoom);
+      if (snap.snappeado) {
+        puntoInicial = snap.punto;
+        snappeado = true;
+        bordeSnap = snap.borde;
+      }
+    }
+
+    const tAhora = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
     this.gesto = {
-      tipo: 'dibujar', pointerId: e.pointerId, pointerType: e.pointerType, herramienta: h, ultimo: p,
-      puntos: [[mundo.x, mundo.y, this._presion(e)]],
+      tipo: 'dibujar',
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      herramienta: h,
+      ultimo: p,
+      puntos: [[puntoInicial.x, puntoInicial.y, this._presion(e)]],
       variable: e.pointerType === 'pen' && h === 'lapiz' && a.opacidad >= 1,
-      grosor, color: a.color, opacidad: a.opacidad,
+      grosor,
+      color: a.color,
+      opacidad: a.opacidad,
+      snappeadoEnInstrumento: snappeado,
+      bordeInstrumento: bordeSnap,
+      inicioMs: tAhora,
+      ultimoMovimientoMs: tAhora,
+      ultimoPuntoPausado: [puntoInicial.x, puntoInicial.y],
+      formaReconocida: null,
+      trazoOriginal: null,
     };
     this._cache = this._crearCache();
-    this._notificar(); this.pedirDibujo();
+    this._notificar();
+    this.pedirDibujo();
   }
 
   _iniciarBorrar(e, p, mundo) {
@@ -486,11 +776,44 @@ export class Lienzo {
 
   _iniciarCrear(mundo) {
     const a = this.ajustes.figura;
+    let inicio = mundo;
+    let anclajeInicio = null;
+    const esLin = this.herramienta === 'linea' || this.herramienta === 'flecha';
+
+    if (esLin) {
+      const puerto = buscarPuertoCercano(this.escena.lista(), mundo.x, mundo.y, 28 / this.camara.zoom);
+      if (puerto) {
+        inicio = { x: puerto.x, y: puerto.y };
+        anclajeInicio = { elementoId: puerto.elementoId, puerto: puerto.id };
+        this.puertoConectorActivo = puerto;
+      }
+      const todosPuertos = [];
+      for (const forma of this.escena.lista()) {
+        if (forma.tipo === 'figura' && !esLinea(forma)) {
+          todosPuertos.push(...calcularPuertosElemento(forma));
+        }
+      }
+      this.puertosConector = todosPuertos;
+    }
+
     const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.FIGURA, {
-      x: mundo.x, y: mundo.y, ancho: 0, alto: 0, z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(mundo.y),
-      datos: { forma: this.herramienta, relleno: this.herramienta === 'linea' || this.herramienta === 'flecha' ? null : a.relleno, borde: a.borde, grosor: Math.max(0.5, a.grosor) },
+      x: inicio.x, y: inicio.y, ancho: 0, alto: 0, z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(inicio.y), cara: this._obtenerCara(),
+      datos: {
+        forma: this.herramienta,
+        relleno: esLin ? null : a.relleno,
+        borde: a.borde,
+        grosor: Math.max(0.5, a.grosor),
+        estiloBorde: a.estiloBorde || 'solido',
+        radioEsquinas: a.radioEsquinas || 0,
+        opacidad: a.opacidad !== undefined ? a.opacidad : 1,
+        sombra: a.sombra || null,
+        tipoConector: a.tipoConector || 'recto',
+        anclajeInicio,
+        anclajeFin: null,
+      },
     });
-    this.gesto = { tipo: 'crear', inicio: mundo, elemento: el, actual: null };
+    this.gesto = { tipo: 'crear', inicio, elemento: el, actual: null, anclajeInicio };
+    this.pedirDibujo();
   }
 
   _mover(e) {
@@ -500,30 +823,122 @@ export class Lienzo {
     if (this.herramienta === 'borrador' && e.pointerType !== 'touch') { this.cursor = p; this.pedirDibujo(); }
     if (!this.punteros.has(e.pointerId)) { if (e.pointerType === 'mouse') this._hover(p); return; }
     this.punteros.set(e.pointerId, { ...p, tipo: e.pointerType });
-    if (this.punteros.size === 2 && this.pellizco) {
-      const [a, b] = [...this.punteros.values()];
-      const centro = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      let c = mover(this.camara, centro.x - this.pellizco.centro.x, centro.y - this.pellizco.centro.y);
-      c = zoomEn(c, centro.x, centro.y, dist / this.pellizco.dist);
-      this.camara = c;
-      this.pellizco = { dist, centro };
-      this._camaraCambio();
-      return;
+    if (this.punteros.size === 2) {
+      if (this.pellizcoInstrumento && this.instrumentoPrecision) {
+        const [a, b] = [...this.punteros.values()];
+        const centroPantalla = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const centroMundo = this._mundo(centroPantalla);
+        const anguloDedos = Math.atan2(b.y - a.y, b.x - a.x);
+        const deltaAngulo = anguloDedos - this.pellizcoInstrumento.anguloDedos;
+
+        this.instrumentoPrecision.angulo = this.pellizcoInstrumento.anguloInicialInst + deltaAngulo;
+        this.instrumentoPrecision.x = this.pellizcoInstrumento.instX + (centroMundo.x - this.pellizcoInstrumento.centroMundo.x);
+        this.instrumentoPrecision.y = this.pellizcoInstrumento.instY + (centroMundo.y - this.pellizcoInstrumento.centroMundo.y);
+
+        this._notificar();
+        this.pedirDibujo();
+        return;
+      }
+      if (this.pellizco) {
+        const [a, b] = [...this.punteros.values()];
+        const centro = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        let c = mover(this.camara, centro.x - this.pellizco.centro.x, centro.y - this.pellizco.centro.y);
+        c = zoomEn(c, centro.x, centro.y, dist / this.pellizco.dist);
+        this.camara = c;
+        this.pellizco = { dist, centro };
+        this._camaraCambio();
+        return;
+      }
     }
     const g = this.gesto;
     if (!g) return;
     if (g.pointerId !== undefined && g.pointerId !== e.pointerId) return;
     const mundo = this._mundo(p);
+
+    if (g.tipo === 'rotar_instrumento' && this.instrumentoPrecision) {
+      const dx = mundo.x - this.instrumentoPrecision.x;
+      const dy = mundo.y - this.instrumentoPrecision.y;
+      const anguloActual = Math.atan2(dy, dx);
+      this.instrumentoPrecision.angulo = g.anguloBase + (anguloActual - g.anguloInicio);
+      this._notificar();
+      this.pedirDibujo();
+      return;
+    }
+    if (g.tipo === 'mover_instrumento' && this.instrumentoPrecision) {
+      this.instrumentoPrecision.x = g.instX + (mundo.x - g.inicioMundo.x);
+      this.instrumentoPrecision.y = g.instY + (mundo.y - g.inicioMundo.y);
+      this._notificar();
+      this.pedirDibujo();
+      return;
+    }
+
     if (g.tipo === 'dibujar') {
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      let tiempoSnapAcumulado = 0;
+
       for (const ev of evs.length ? evs : [e]) {
         const pp = this._pos(ev);
         if (Math.hypot(pp.x - g.ultimo.x, pp.y - g.ultimo.y) < 1) continue;
-        const m = this._mundo(pp);
+        let m = this._mundo(pp);
+
+        if (this.instrumentoPrecision?.activo) {
+          const tSnap0 = typeof performance !== 'undefined' ? performance.now() : 0;
+          const snap = aplicarSnapInstrumento(this.instrumentoPrecision, m, 28 / this.camara.zoom);
+          if (snap.snappeado) {
+            m = snap.punto;
+            g.snappeadoEnInstrumento = true;
+          }
+          if (typeof performance !== 'undefined') {
+            tiempoSnapAcumulado += (performance.now() - tSnap0);
+          }
+        }
+
         g.puntos.push([m.x, m.y, this._presion(ev)]);
         g.ultimo = pp;
       }
+
+      // Línea ya enderezada: el extremo final acompaña al puntero, así queda donde se suelta
+      if (g.formaReconocida?.tipo === 'linea' && g.puntos.length > 2) {
+        const p1 = g.formaReconocida.puntos[0];
+        const fin = g.puntos[g.puntos.length - 1];
+        g.formaReconocida = construirLineaRecta(p1, fin, g.formaReconocida.confianza);
+        g.puntos = g.formaReconocida.puntos;
+      }
+
+      if (typeof performance !== 'undefined') {
+        const tTotal = performance.now() - t0;
+        if (this.instrumentoPrecision?.activo) {
+          this._muestrasLatenciaConSnap.push(tiempoSnapAcumulado);
+          if (this._muestrasLatenciaConSnap.length > 80) this._muestrasLatenciaConSnap.shift();
+        } else {
+          this._muestrasLatenciaSinSnap.push(tTotal);
+          if (this._muestrasLatenciaSinSnap.length > 80) this._muestrasLatenciaSinSnap.shift();
+        }
+      }
+
+      // Corrección automática de formas («Hold-to-snap»)
+      if (this.correccionFormasActiva && !g.snappeadoEnInstrumento && g.puntos.length >= 8) {
+        const ult = g.puntos[g.puntos.length - 1];
+        const distMov = Math.hypot(ult[0] - g.ultimoPuntoPausado[0], ult[1] - g.ultimoPuntoPausado[1]);
+        const distPantalla = distMov * this.camara.zoom;
+
+        const tAhora = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (distPantalla > 7) {
+          g.ultimoMovimientoMs = tAhora;
+          g.ultimoPuntoPausado = [ult[0], ult[1]];
+        } else {
+          const tiempoPausado = tAhora - g.ultimoMovimientoMs;
+          if (tiempoPausado >= this.tiempoEsperaCorreccionMs && !g.formaReconocida) this._corregirFormaDelGesto(g);
+        }
+      }
+      // Un mouse o un dedo quietos no generan más eventos: un temporizador completa la espera.
+      clearTimeout(g.temporizadorForma);
+      if (this.correccionFormasActiva && !g.formaReconocida) {
+        g.temporizadorForma = setTimeout(() => this._corregirFormaDelGesto(g), this.tiempoEsperaCorreccionMs + 40);
+      }
+
       this.pedirDibujo();
     } else if (g.tipo === 'borrar') {
       this.cursor = p;
@@ -539,19 +954,105 @@ export class Lienzo {
     } else if (g.tipo === 'mover') {
       if (!g.movido && Math.hypot(p.x - g.inicioPantalla.x, p.y - g.inicioPantalla.y) < 3) return;
       g.movido = true;
-      const { dx, dy } = this._snapMover(g.origenes, mundo.x - g.inicio.x, mundo.y - g.inicio.y);
-      this.escena.transitorio([...g.origenes].map(([id, o]) => ({ id, antes: o, despues: trasladar(o, dx, dy) })));
+      let dx = mundo.x - g.inicio.x;
+      let dy = mundo.y - g.inicio.y;
+      this.guiasActivas = [];
+      if (this.imanActivo) {
+        const origenesArray = [...g.origenes.values()];
+        const cajaBase = unirRects(origenesArray);
+        if (cajaBase) {
+          const cajaTentativa = { x: cajaBase.x + dx, y: cajaBase.y + dy, ancho: cajaBase.ancho, alto: cajaBase.alto };
+          const idsMoviendo = new Set(g.origenes.keys());
+          const otros = this.escena.lista().filter((el) => !idsMoviendo.has(el.id));
+          const umbral = 7 / (this.camara.zoom || 1);
+          const snap = calcularSnapGuias(cajaTentativa, otros, this.renglones, umbral, true);
+          dx += snap.dx;
+          dy += snap.dy;
+          this.guiasActivas = snap.guias;
+        }
+      } else {
+        ({ dx, dy } = this._snapMover(g.origenes, dx, dy));
+      }
+      const cambiosMov = [...g.origenes].map(([id, o]) => ({ id, antes: o, despues: trasladar(o, dx, dy) }));
+      const cambiosConectores = actualizarConectoresDeElementos(cambiosMov.map((c) => c.despues), this.escena);
+      this.escena.transitorio([...cambiosMov, ...cambiosConectores]);
+      this.pedirDibujo();
     } else if (g.tipo === 'texto') {
       g.actual = mundo;
       this.pedirDibujo();
     } else if (g.tipo === 'redimensionar') {
       let dx = mundo.x - g.inicio.x, dy = mundo.y - g.inicio.y;
-      if (!e.shiftKey) { const asa = manijas(g.original).find((h) => h.n === g.manija); if (asa) ({ dx, dy } = this._snapDelta(asa, dx, dy)); }
-      const r = redimensionar(g.original, g.manija, dx, dy, e.shiftKey);
-      const nuevo = esLinea(g.original) ? moverExtremo(g.original, g.manija, dx, dy)
-        : g.original.tipo === 'texto' ? this._ajustarTexto({ ...g.original, ...r }, g.original) : { ...g.original, ...r };
-      this.escena.transitorio([{ id: g.original.id, antes: g.original, despues: nuevo }]);
-      g.cambio = true;
+      const mantenerProp = e.shiftKey || this.fijarProporcion;
+      if (g.esGrupo) {
+        const cOrig = g.cajaOriginal;
+        if (!mantenerProp) {
+          const asa = manijas(cOrig).find((h) => h.n === g.manija);
+          if (asa) ({ dx, dy } = this._snapDelta(asa, dx, dy));
+        }
+        const nuevaCaja = redimensionar(cOrig, g.manija, dx, dy, mantenerProp);
+        const cambios = [];
+        for (const [id, elOrig] of g.origenes) {
+          let transformado = escalarElemento(elOrig, nuevaCaja, cOrig);
+          if (transformado.tipo === 'texto') {
+            transformado = this._ajustarTexto(transformado, elOrig);
+          }
+          cambios.push({ id, antes: elOrig, despues: transformado });
+        }
+        const cambiosConectores = actualizarConectoresDeElementos(cambios.map((c) => c.despues), this.escena);
+        this.escena.transitorio([...cambios, ...cambiosConectores]);
+        g.cambio = true;
+      } else {
+        if (!mantenerProp) {
+          const asa = manijas(g.original).find((h) => h.n === g.manija);
+          if (asa) ({ dx, dy } = this._snapDelta(asa, dx, dy));
+        }
+        const r = redimensionar(g.original, g.manija, dx, dy, mantenerProp);
+        let nuevo;
+        if (esLinea(g.original)) {
+          const [extA, extB] = extremosLinea(g.original);
+          let posFin = {
+            x: (g.manija === 'p1' ? extA.x : extB.x) + dx,
+            y: (g.manija === 'p1' ? extA.y : extB.y) + dy,
+          };
+          const puerto = buscarPuertoCercano(this.escena.lista(), posFin.x, posFin.y, 28 / this.camara.zoom, g.original.id);
+          let nuevoAnclajeInicio = g.original.datos?.anclajeInicio || null;
+          let nuevoAnclajeFin = g.original.datos?.anclajeFin || null;
+          if (puerto) {
+            posFin = { x: puerto.x, y: puerto.y };
+            this.puertoConectorActivo = puerto;
+            if (g.manija === 'p1') {
+              nuevoAnclajeInicio = { elementoId: puerto.elementoId, puerto: puerto.id };
+            } else {
+              nuevoAnclajeFin = { elementoId: puerto.elementoId, puerto: puerto.id };
+            }
+          } else {
+            this.puertoConectorActivo = null;
+            if (g.manija === 'p1') nuevoAnclajeInicio = null;
+            else nuevoAnclajeFin = null;
+          }
+          const pA = g.manija === 'p1' ? posFin : extA;
+          const pB = g.manija === 'p2' ? posFin : extB;
+          nuevo = lineaDesdeExtremos({
+            ...g.original,
+            datos: {
+              ...g.original.datos,
+              anclajeInicio: nuevoAnclajeInicio,
+              anclajeFin: nuevoAnclajeFin,
+            },
+          }, pA, pB);
+        } else if (g.original.tipo === 'trazo') {
+          nuevo = escalarTrazo(g.original, r, g.original);
+        } else if (g.original.tipo === 'simbolo') {
+          nuevo = escalarSimbolo(g.original, r, g.original);
+        } else if (g.original.tipo === 'texto') {
+          nuevo = this._ajustarTexto({ ...g.original, ...r }, g.original);
+        } else {
+          nuevo = { ...g.original, ...r };
+        }
+        const cambiosConectores = actualizarConectoresDeElementos([nuevo], this.escena);
+        this.escena.transitorio([{ id: g.original.id, antes: g.original, despues: nuevo }, ...cambiosConectores]);
+        g.cambio = true;
+      }
     } else if (g.tipo === 'marco') {
       g.actual = mundo;
       const r = normalizarRect(g.inicio.x, g.inicio.y, mundo.x, mundo.y);
@@ -559,6 +1060,17 @@ export class Lienzo {
       for (const el of this.escena.lista()) if (rectsSeCruzan(el, r)) sel.add(el.id);
       this.seleccion = sel;
       this._notificar(); this.pedirDibujo();
+    } else if (g.tipo === 'lazo') {
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const ev of evs.length ? evs : [e]) {
+        const pp = this._pos(ev);
+        const m = this._mundo(pp);
+        const ult = g.puntos[g.puntos.length - 1];
+        if (!ult || Math.hypot(m.x - ult[0], m.y - ult[1]) >= 2 / this.camara.zoom) {
+          g.puntos.push([m.x, m.y]);
+        }
+      }
+      this.pedirDibujo();
     } else if (g.tipo === 'crear') {
       let fin = mundo;
       if (e.shiftKey) {
@@ -569,42 +1081,153 @@ export class Lienzo {
           fin = { x: g.inicio.x + len * Math.cos(ang), y: g.inicio.y + len * Math.sin(ang) };
         } else { const l = Math.max(Math.abs(dx), Math.abs(dy)); fin = { x: g.inicio.x + Math.sign(dx || 1) * l, y: g.inicio.y + Math.sign(dy || 1) * l }; }
       }
-      if (!e.shiftKey) fin = this._snapPunto(fin);
-      const nuevo = esLinea(g.elemento) ? lineaDesdeExtremos(g.elemento, g.inicio, fin) : { ...g.elemento, ...normalizarRect(g.inicio.x, g.inicio.y, fin.x, fin.y) };
+      let anclajeFin = null;
+      if (esLinea(g.elemento)) {
+        const puerto = buscarPuertoCercano(this.escena.lista(), fin.x, fin.y, 28 / this.camara.zoom, g.elemento.id);
+        if (puerto) {
+          fin = { x: puerto.x, y: puerto.y };
+          anclajeFin = { elementoId: puerto.elementoId, puerto: puerto.id };
+          this.puertoConectorActivo = puerto;
+        } else {
+          this.puertoConectorActivo = null;
+          if (!e.shiftKey) fin = this._snapPunto(fin);
+        }
+      } else if (!e.shiftKey) {
+        fin = this._snapPunto(fin);
+      }
+      let elConAnclajes = g.elemento;
+      if (esLinea(g.elemento)) {
+        elConAnclajes = {
+          ...g.elemento,
+          datos: {
+            ...g.elemento.datos,
+            anclajeInicio: g.anclajeInicio || null,
+            anclajeFin,
+          },
+        };
+      }
+      const nuevo = esLinea(elConAnclajes)
+        ? lineaDesdeExtremos(elConAnclajes, g.inicio, fin)
+        : { ...elConAnclajes, ...normalizarRect(g.inicio.x, g.inicio.y, fin.x, fin.y) };
       this.escena.transitorio([{ id: nuevo.id, antes: g.actual, despues: nuevo }]);
       g.actual = nuevo;
     }
   }
 
+  _enlaceEnPunto(el, mundo) {
+    if (!el || el.tipo !== 'texto' || !el.datos) return null;
+    const l = layoutDe(el.datos, el.ancho, undefined, this._opcionesLayout(el.datos));
+    if (!l.enlaces || !l.enlaces.length) return null;
+    const lx = mundo.x - el.x;
+    const ly = mundo.y - el.y;
+    for (const item of l.enlaces) {
+      const c = item.caja;
+      if (lx >= c.x && lx <= c.x + c.ancho && ly >= c.y && ly <= c.y + c.alto) {
+        return item.enlace;
+      }
+    }
+    return null;
+  }
+
+  abrirEnlace(enlace) {
+    if (!enlace) return;
+    if (enlace.tipo === 'web' && enlace.url) {
+      try {
+        window.open(enlace.url, '_blank', 'noopener,noreferrer');
+      } catch {}
+    } else if (enlace.tipo === 'nota' && enlace.notaId) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('nt:abrir-nota', { detail: enlace }));
+      }
+    }
+  }
+
   _hover(p) {
-    if (this.herramienta !== 'seleccionar' || this.espacio) { this._cursor(); return; }
+    if ((this.herramienta !== 'seleccionar' && this.herramienta !== 'lazo') || this.espacio) { this._cursor(); return; }
     const m = this._mundo(p), z = this.camara.zoom;
-    const unico = this._unicoRedimensionable();
-    const h = unico && manijaEn(unico, m.x, m.y, 9 / z);
+    const caja = this._cajaRedimensionable();
+    const h = caja && manijaEn(caja, m.x, m.y, 9 / z);
     if (h) { this._cursor(CURSOR_MANIJA[h]); return; }
-    this._cursor(this._elementoEn(m, 3 / z) ? 'move' : null);
+    const el = this._elementoEn(m, 3 / z);
+    if (el && el.tipo === 'texto' && this._enlaceEnPunto(el, m)) {
+      this._cursor('pointer');
+      return;
+    }
+    this._cursor(el ? 'move' : null);
   }
 
   _arriba(e) {
     if (this.ignorados.delete(e.pointerId)) return;
     this.punteros.delete(e.pointerId);
     try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* ya liberado */ }
+    if (this.pellizcoInstrumento) { if (this.punteros.size < 2) { this.pellizcoInstrumento = null; this._cursor(); } }
     if (this.pellizco) { if (this.punteros.size < 2) { this.pellizco = null; this._cursor(); } return; }
     const g = this.gesto;
     if (g && g.pointerId !== undefined && g.pointerId !== e.pointerId) return;
     this.gesto = null;
     if (!g) return;
     if (e.pointerType === 'touch') this.cursor = null;
+    if (g.tipo === 'rotar_instrumento' || g.tipo === 'mover_instrumento') {
+      this._notificar();
+      this.pedirDibujo();
+      return;
+    }
     if (g.tipo === 'dibujar') {
       this._cache = null;
-      const pts = simplificar(g.puntos, 0.25 / this.camara.zoom);
-      const ultimo = pts[pts.length - 1];
-      if (ultimo) this.cursorTexto = { x: ultimo[0], y: ultimo[1] };
-      const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TRAZO, {
-        ...cajaDeTrazo(pts, g.grosor), z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(pts[0] ? pts[0][1] : this.camara.y),
-        datos: { puntos: pts, color: g.color, grosor: g.grosor, opacidad: g.opacidad, herramienta: g.herramienta, variable: g.variable },
-      });
-      this.escena.ejecutar([{ id: el.id, antes: null, despues: el }], 'dibujar');
+      if (g.formaReconocida) {
+        const fr = g.formaReconocida;
+        const df = fr.datosFigura;
+        let el;
+        if (df && (df.forma === 'rectangulo' || df.forma === 'elipse' || df.forma === 'triangulo' || df.forma === 'linea')) {
+          el = crearElemento(this.documentoId, TIPOS_ELEMENTO.FIGURA, {
+            x: df.x,
+            y: df.y,
+            ancho: df.ancho,
+            alto: df.alto,
+            z: this.escena.zMax() + 1,
+            contenedor: this._obtenerContenedor(df.y),
+            cara: this._obtenerCara(),
+            datos: {
+              forma: df.forma,
+              ...(df.forma === 'linea' ? { volteoX: !!df.volteoX, volteoY: !!df.volteoY } : {}),
+              relleno: null,
+              borde: g.color,
+              grosor: g.grosor,
+              estiloBorde: 'solido',
+              radioEsquinas: 0,
+              opacidad: g.opacidad,
+              trazoOriginal: g.trazoOriginal,
+            },
+          });
+        } else {
+          const pts = fr.puntos || g.puntos;
+          el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TRAZO, {
+            ...cajaDeTrazo(pts, g.grosor),
+            z: this.escena.zMax() + 1,
+            contenedor: this._obtenerContenedor(pts[0] ? pts[0][1] : this.camara.y),
+            cara: this._obtenerCara(),
+            datos: {
+              puntos: pts,
+              color: g.color,
+              grosor: g.grosor,
+              opacidad: g.opacidad,
+              herramienta: g.herramienta,
+              variable: g.variable,
+              trazoOriginal: g.trazoOriginal,
+            },
+          });
+        }
+        this.escena.ejecutar([{ id: el.id, antes: null, despues: el }], 'dibujar');
+      } else {
+        const pts = simplificar(g.puntos, 0.25 / this.camara.zoom);
+        const ultimo = pts[pts.length - 1];
+        if (ultimo) this.cursorTexto = { x: ultimo[0], y: ultimo[1] };
+        const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TRAZO, {
+          ...cajaDeTrazo(pts, g.grosor), z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(pts[0] ? pts[0][1] : this.camara.y), cara: this._obtenerCara(),
+          datos: { puntos: pts, color: g.color, grosor: g.grosor, opacidad: g.opacidad, herramienta: g.herramienta, variable: g.variable },
+        });
+        this.escena.ejecutar([{ id: el.id, antes: null, despues: el }], 'dibujar');
+      }
     } else if (g.tipo === 'borrar') {
       this.escena.registrar(g.cambios, 'borrar');
     } else if (g.tipo === 'texto') {
@@ -615,11 +1238,57 @@ export class Lienzo {
       // el texto nuevo nace con su primer renglón donde se hizo doble clic (y guiado por los renglones, si están activos)
       this._crearTextoDirecto(g.inicio.x, g.inicio.y - Math.round(this.ajustes.texto.tamano) * 0.7);
     } else if (g.tipo === 'mover' && !g.movido && g.sobreTexto) {
-      this._toqueSobreTexto(g.sobreTexto, e);
+      const el = this.escena.get(g.sobreTexto);
+      const enlace = this._enlaceEnPunto(el, g.inicio);
+      if (enlace && (e.ctrlKey || e.metaKey || this.herramienta === 'mano')) {
+        this.abrirEnlace(enlace);
+      } else {
+        this._toqueSobreTexto(g.sobreTexto, e);
+      }
+    } else if (g.tipo === 'mover' && !g.movido) {
+      const idPrimerSel = [...g.origenes.keys()][0];
+      const el = idPrimerSel ? this.escena.get(idPrimerSel) : null;
+      const enlace = el?.enlace || el?.datos?.enlace;
+      if (enlace && (this.herramienta === 'mano' || e.ctrlKey || e.metaKey)) {
+        this.abrirEnlace(enlace);
+      }
     } else if (g.tipo === 'mover' && g.movido) {
-      this.escena.registrar([...g.origenes].map(([id, o]) => ({ id, antes: o, despues: this.escena.get(id) })), 'mover');
+      const cambiosMov = [...g.origenes].map(([id, o]) => ({ id, antes: o, despues: this.escena.get(id) }));
+      const cambiosConectores = actualizarConectoresDeElementos(cambiosMov.map((c) => c.despues), this.escena);
+      this.escena.registrar([...cambiosMov, ...cambiosConectores], 'mover');
     } else if (g.tipo === 'redimensionar' && g.cambio) {
-      this.escena.registrar([{ id: g.original.id, antes: g.original, despues: this.escena.get(g.original.id) }], 'redimensionar');
+      if (g.esGrupo) {
+        const cambios = [...g.origenes.keys()].map((id) => ({ id, antes: g.origenes.get(id), despues: this.escena.get(id) }));
+        const cambiosConectores = actualizarConectoresDeElementos(cambios.map((c) => c.despues), this.escena);
+        this.escena.registrar([...cambios, ...cambiosConectores], 'redimensionar');
+      } else {
+        const desp = this.escena.get(g.original.id);
+        const cambiosConectores = actualizarConectoresDeElementos([desp], this.escena);
+        this.escena.registrar([{ id: g.original.id, antes: g.original, despues: desp }, ...cambiosConectores], 'redimensionar');
+      }
+    } else if (g.tipo === 'lazo') {
+      const cajaL = cajaDeTrazo(g.puntos, 0);
+      const recorridoLargo = g.puntos.length >= 4 && (cajaL.ancho >= 8 || cajaL.alto >= 8);
+      if (!recorridoLargo) {
+        const el = this._elementoEn(g.inicio, (e.pointerType !== 'mouse' ? 8 : 3) / this.camara.zoom);
+        if (el) {
+          if (g.esMulti) {
+            if (this.seleccion.has(el.id)) this.seleccion.delete(el.id);
+            else this.seleccion.add(el.id);
+          } else {
+            this.seleccion = new Set([el.id]);
+          }
+        } else if (!g.esMulti) {
+          this.seleccion = new Set();
+        }
+      } else {
+        const pts = simplificar(g.puntos, 0.8 / this.camara.zoom);
+        const sel = new Set(g.base);
+        for (const el of this.escena.lista()) {
+          if (elementoTocadoPorLazo(el, pts)) sel.add(el.id);
+        }
+        this.seleccion = sel;
+      }
     } else if (g.tipo === 'crear' && g.actual) {
       const el = g.actual;
       if (el.ancho * this.camara.zoom < 4 && el.alto * this.camara.zoom < 4) {
@@ -630,6 +1299,10 @@ export class Lienzo {
         this.herramienta = 'seleccionar';
       }
     }
+    this.puertosConector = null;
+    this.puertoConectorActivo = null;
+    this.guiasActivas = [];
+    this.seleccion = this._expandirGrupo(this.seleccion);
     this._cursor(); this._notificar(); this.pedirDibujo();
   }
 
@@ -645,11 +1318,17 @@ export class Lienzo {
   _cancelarGesto() {
     const g = this.gesto;
     this.gesto = null;
+    this.puertosConector = null;
+    this.puertoConectorActivo = null;
+    this.guiasActivas = [];
     if (!g) return;
     this._cache = null;
     if (g.tipo === 'borrar' && g.cambios.length) this.escena.transitorio(invertir(g.cambios));
     else if (g.tipo === 'mover' && g.movido) this.escena.transitorio([...g.origenes].map(([id, o]) => ({ id, antes: this.escena.get(id), despues: o })));
-    else if (g.tipo === 'redimensionar' && g.cambio) this.escena.transitorio([{ id: g.original.id, antes: this.escena.get(g.original.id), despues: g.original }]);
+    else if (g.tipo === 'redimensionar' && g.cambio) {
+      if (g.esGrupo) this.escena.transitorio([...g.origenes].map(([id, o]) => ({ id, antes: this.escena.get(id), despues: o })));
+      else this.escena.transitorio([{ id: g.original.id, antes: this.escena.get(g.original.id), despues: g.original }]);
+    }
     else if (g.tipo === 'crear' && g.actual) this.escena.transitorio([{ id: g.actual.id, antes: g.actual, despues: null }]);
     this.pedirDibujo();
   }
@@ -665,7 +1344,7 @@ export class Lienzo {
       const ultimo = pts[pts.length - 1];
       if (ultimo) this.cursorTexto = { x: ultimo[0], y: ultimo[1] };
       const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TRAZO, {
-        ...cajaDeTrazo(pts, g.grosor), z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(pts[0] ? pts[0][1] : this.camara.y),
+        ...cajaDeTrazo(pts, g.grosor), z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(pts[0] ? pts[0][1] : this.camara.y), cara: this._obtenerCara(),
         datos: { puntos: pts, color: g.color, grosor: g.grosor, opacidad: g.opacidad, herramienta: g.herramienta, variable: g.variable },
       });
       this.escena.ejecutar([{ id: el.id, antes: null, despues: el }], 'dibujar');
@@ -674,7 +1353,12 @@ export class Lienzo {
     } else if (g.tipo === 'mover' && g.movido) {
       this.escena.registrar([...g.origenes].map(([id, o]) => ({ id, antes: o, despues: this.escena.get(id) })), 'mover');
     } else if (g.tipo === 'redimensionar' && g.cambio) {
-      this.escena.registrar([{ id: g.original.id, antes: g.original, despues: this.escena.get(g.original.id) }], 'redimensionar');
+      if (g.esGrupo) {
+        const cambios = [...g.origenes.keys()].map((id) => ({ id, antes: g.origenes.get(id), despues: this.escena.get(id) }));
+        this.escena.registrar(cambios, 'redimensionar');
+      } else {
+        this.escena.registrar([{ id: g.original.id, antes: g.original, despues: this.escena.get(g.original.id) }], 'redimensionar');
+      }
     } else if (g.tipo === 'crear' && g.actual) {
       const el = g.actual;
       if (el.ancho * this.camara.zoom >= 4 || el.alto * this.camara.zoom >= 4) {
@@ -704,7 +1388,18 @@ export class Lienzo {
     }
     if (ctrl && k === 'z') { e.preventDefault(); if (e.shiftKey) this.rehacer(); else this.deshacer(); }
     else if (ctrl && k === 'y') { e.preventDefault(); this.rehacer(); }
+    else if (ctrl && k === 'g') { e.preventDefault(); if (e.shiftKey) this.desagruparSeleccion(); else this.agruparSeleccion(); }
+    else if (ctrl && k === 'l') { e.preventDefault(); this.alternarBloqueoSeleccion(); }
     else if (ctrl && k === 'a') { e.preventDefault(); this.seleccionarTodo(); }
+    else if (ctrl && k === 'c' && this.seleccion.size > 0 && !this.editor) { this.copiar(); }
+    else if (ctrl && k === 'x' && this.seleccion.size > 0 && !this.editor) { e.preventDefault(); this.cortar(); }
+    else if (ctrl && k === 'v' && !this.editor) {
+      if (hayContenidoEnPortapapeles()) {
+        e.preventDefault();
+        this.pegar();
+      }
+    }
+    else if (ctrl && k === 'd' && this.seleccion.size > 0 && !this.editor) { e.preventDefault(); this.duplicar(); }
     else if (k === 'delete' || k === 'backspace') { e.preventDefault(); this.eliminarSeleccion(); }
     else if (k === 'escape') { this._cancelarGesto(); this.seleccion = new Set(); this._notificar(); this.pedirDibujo(); }
     else if (e.code === 'Space' && t?.tagName !== 'BUTTON') {
@@ -718,10 +1413,10 @@ export class Lienzo {
     else if (k === 'g' && !ctrl && !e.altKey && !this.puedeHerramienta('texto')) this.alternarRenglones();
     else if (k === 'g' && !ctrl && e.altKey) this.alternarRenglones();
     else if (!ctrl && !e.altKey) {
-      const h = { v: 'seleccionar', h: 'mano', p: 'lapiz', m: 'resaltador', b: 'borrador', t: 'texto', r: 'rectangulo', e: 'elipse', l: 'linea', a: 'flecha' }[k];
+      const h = { v: 'seleccionar', q: 'lazo', h: 'mano', p: 'lapiz', m: 'resaltador', b: 'borrador', t: 'texto', r: 'rectangulo', e: 'elipse', l: 'linea', a: 'flecha' }[k];
       if (h) { this.setHerramienta(h); return; }
     } else if (!ctrl && e.altKey) {
-      const h = { v: 'seleccionar', h: 'mano', p: 'lapiz', m: 'resaltador', b: 'borrador', t: 'texto', r: 'rectangulo', e: 'elipse', l: 'linea', a: 'flecha', g: 'renglones' }[k];
+      const h = { v: 'seleccionar', q: 'lazo', h: 'mano', p: 'lapiz', m: 'resaltador', b: 'borrador', t: 'texto', r: 'rectangulo', e: 'elipse', l: 'linea', a: 'flecha', g: 'renglones' }[k];
       if (h === 'renglones') this.alternarRenglones();
       else if (h) this.setHerramienta(h);
     }
@@ -764,12 +1459,133 @@ export class Lienzo {
     if (!this.escena.historial.puedeRehacer() && this.historialExtra?.puedeRehacer()) { this.historialExtra.rehacer(); return; }
     this.escena.rehacer();
   }
+  // Reconoce la forma del trazo en curso (círculo, recta, rectángulo...) y la reemplaza por la versión perfecta.
+  _corregirFormaDelGesto(g) {
+    if (this.gesto !== g || g.tipo !== 'dibujar' || g.formaReconocida || g.snappeadoEnInstrumento || !this.correccionFormasActiva) return;
+    if (g.puntos.length < 8) return;
+    const forma = reconocerForma(g.puntos);
+    if (!forma) return;
+    g.formaReconocida = forma;
+    g.trazoOriginal = [...g.puntos];
+    g.puntos = forma.puntos;
+    this.pedirDibujo();
+  }
+
+  // Selecciona exactamente los elementos indicados (por ejemplo, al llegar desde un resultado de búsqueda).
+  seleccionar(ids = []) {
+    this.seleccion = new Set((ids || []).filter((id) => this.escena.get(id)));
+    this._notificar();
+    this.pedirDibujo();
+  }
+
   seleccionarTodo() { this.seleccion = new Set(this.escena.lista().map((e) => e.id)); this._notificar(); this.pedirDibujo(); }
 
   eliminarSeleccion() {
-    const cambios = [...this.seleccion].map((id) => ({ id, antes: this.escena.get(id), despues: null })).filter((c) => c.antes);
-    this.seleccion = new Set();
-    this.escena.ejecutar(cambios, 'eliminar');
+    const elementosAEliminar = [...this.seleccion]
+      .map((id) => this.escena.get(id))
+      .filter((el) => el && !el.bloqueado);
+    if (!elementosAEliminar.length) return;
+    const cambios = elementosAEliminar.map((el) => ({ id: el.id, antes: el, despues: null }));
+    const idsBorrados = elementosAEliminar.map((el) => el.id);
+    const cambiosDesanclar = desanclarConectoresDeIdsBorrados(idsBorrados, this.escena);
+    for (const el of elementosAEliminar) this.seleccion.delete(el.id);
+    this.escena.ejecutar([...cambios, ...cambiosDesanclar], 'eliminar');
+    this._notificar();
+    this.pedirDibujo();
+  }
+
+  agruparSeleccion() {
+    const noBloqueados = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && !el.bloqueado);
+    if (noBloqueados.length < 2) return false;
+    const gId = nuevoId();
+    const cambios = noBloqueados.map((el) => ({ id: el.id, antes: el, despues: { ...el, grupoId: gId } }));
+    this.escena.ejecutar(cambios, 'agrupar');
+    this.seleccion = this._expandirGrupo(this.seleccion);
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  desagruparSeleccion() {
+    const conGrupo = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && el.grupoId && !el.bloqueado);
+    if (!conGrupo.length) return false;
+    const cambios = conGrupo.map((el) => ({ id: el.id, antes: el, despues: { ...el, grupoId: null } }));
+    this.escena.ejecutar(cambios, 'desagrupar');
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  bloquearSeleccion() {
+    const elementos = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && !el.bloqueado);
+    if (!elementos.length) return false;
+    const cambios = elementos.map((el) => ({ id: el.id, antes: el, despues: { ...el, bloqueado: true } }));
+    this.escena.ejecutar(cambios, 'bloquear');
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  desbloquearSeleccion() {
+    const elementos = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && el.bloqueado);
+    if (!elementos.length) return false;
+    const cambios = elementos.map((el) => ({ id: el.id, antes: el, despues: { ...el, bloqueado: false } }));
+    this.escena.ejecutar(cambios, 'desbloquear');
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  alternarBloqueoSeleccion() {
+    const algunoBloqueado = [...this.seleccion].some((id) => this.escena.get(id)?.bloqueado);
+    if (algunoBloqueado) return this.desbloquearSeleccion();
+    return this.bloquearSeleccion();
+  }
+
+  alinear(direccion) {
+    const elementos = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && !el.bloqueado);
+    if (elementos.length < 2) return false;
+    const alineados = alinearElementos(elementos, direccion);
+    const cambios = alineados
+      .map((a) => ({ id: a.id, antes: this.escena.get(a.id), despues: a }))
+      .filter((c) => c.antes.x !== c.despues.x || c.antes.y !== c.despues.y);
+    if (cambios.length) {
+      this.escena.ejecutar(cambios, `alinear ${direccion}`);
+      this._notificar();
+      this.pedirDibujo();
+    }
+    return true;
+  }
+
+  distribuir(direccion) {
+    const elementos = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && !el.bloqueado);
+    if (elementos.length < 3) return false;
+    const distribuidos = distribuirElementos(elementos, direccion);
+    const cambios = distribuidos
+      .map((d) => ({ id: d.id, antes: this.escena.get(d.id), despues: d }))
+      .filter((c) => c.antes.x !== c.despues.x || c.antes.y !== c.despues.y);
+    if (cambios.length) {
+      this.escena.ejecutar(cambios, `distribuir ${direccion}`);
+      this._notificar();
+      this.pedirDibujo();
+    }
+    return true;
+  }
+
+  toggleIman() {
+    this.imanActivo = !this.imanActivo;
+    this.guiasActivas = [];
+    this._notificar();
+    this.pedirDibujo();
+    return this.imanActivo;
+  }
+
+  setIman(activo) {
+    this.imanActivo = !!activo;
+    this.guiasActivas = [];
+    this._notificar();
+    this.pedirDibujo();
+    return this.imanActivo;
   }
 
   reordenar(modo) { if (this.seleccion.size) this.escena.reordenar([...this.seleccion], modo); }
@@ -788,7 +1604,7 @@ export class Lienzo {
       const ancho = Math.max(2, procesada.anchoOriginal * escala);
       const alto = Math.max(2, procesada.altoOriginal * escala);
       const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.IMAGEN, {
-        x: p.x, y: p.y, ancho, alto, z: this.escena.zMax() + 1, contenedor: pagina,
+        x: p.x, y: p.y, ancho, alto, z: this.escena.zMax() + 1, contenedor: pagina, cara: this._obtenerCara(),
         datos: { blobId: blob.id, anchoOriginal: procesada.anchoOriginal, altoOriginal: procesada.altoOriginal, nombre: procesada.nombre },
       });
       this.seleccion = new Set([el.id]);
@@ -881,6 +1697,25 @@ export class Lienzo {
     this._camaraCambio();
   }
 
+  setResaltadosBusqueda(resaltados = [], coincidenciaActiva = null) {
+    this.resaltadosBusqueda = Array.isArray(resaltados) ? resaltados : [];
+    this.coincidenciaActiva = coincidenciaActiva;
+    this.pedirDibujo();
+  }
+
+  centrarEnUbicacion(u, zoomFijo = null) {
+    if (!u) return;
+    const cx = (Number(u.x) || 0) + (Number(u.ancho) || 0) / 2;
+    const cy = (Number(u.y) || 0) + (Number(u.alto) || 0) / 2;
+    const zoom = zoomFijo || this.camara.zoom || 1;
+    this.camara = {
+      x: cx - this.ancho / 2 / zoom,
+      y: cy - this.alto / 2 / zoom,
+      zoom,
+    };
+    this._camaraCambio();
+  }
+
   // Conecta (o desconecta con null) el canvas del minimapa.
   conectarMinimapa(canvas) {
     this.minimapa?.destruir();
@@ -888,21 +1723,172 @@ export class Lienzo {
     this.pedirDibujo();
   }
 
-  // Cambia el estilo de las figuras seleccionadas y de las que se creen de ahí en adelante.
-  // parche: { borde?, relleno? (null = sin relleno), grosor? (en unidades del mundo) }
+  // Cambia el estilo de las figuras o íconos seleccionados y de los que se creen de ahí en adelante.
   estiloFiguras(parche) {
     const cambios = [];
     for (const id of this.seleccion) {
       const el = this.escena.get(id);
-      if (!el || el.tipo !== 'figura') continue;
-      const d = { ...el.datos };
-      if ('borde' in parche) d.borde = parche.borde;
-      if ('relleno' in parche && !esLinea(el)) d.relleno = parche.relleno;
-      if ('grosor' in parche) d.grosor = Math.max(0.5, parche.grosor);
-      cambios.push({ id, antes: el, despues: { ...el, datos: d } });
+      if (!el) continue;
+      if (el.tipo === 'figura') {
+        const d = { ...el.datos };
+        if ('borde' in parche) d.borde = parche.borde;
+        if ('relleno' in parche && !esLinea(el)) d.relleno = parche.relleno;
+        if ('grosor' in parche) d.grosor = Math.max(0.5, parche.grosor);
+        if ('estiloBorde' in parche) d.estiloBorde = parche.estiloBorde;
+        if ('radioEsquinas' in parche) d.radioEsquinas = Math.max(0, parche.radioEsquinas);
+        if ('opacidad' in parche) d.opacidad = Math.max(0.05, Math.min(1, parche.opacidad));
+        if ('sombra' in parche) d.sombra = parche.sombra ? { ...(d.sombra || {}), ...parche.sombra } : null;
+        if ('tipoConector' in parche) d.tipoConector = parche.tipoConector;
+        if ('texto' in parche) d.texto = parche.texto;
+        if ('etiqueta' in parche) d.etiqueta = parche.etiqueta;
+        if ('enlace' in parche) d.enlace = parche.enlace;
+        cambios.push({ id, antes: el, despues: { ...el, datos: d, enlace: d.enlace } });
+      } else if (el.tipo === 'icono') {
+        const d = { ...el.datos };
+        if ('color' in parche) d.color = parche.color;
+        if ('borde' in parche) d.borde = parche.borde;
+        if ('grosor' in parche) d.grosor = Math.max(0.5, parche.grosor);
+        if ('estiloBorde' in parche) d.estiloBorde = parche.estiloBorde;
+        if ('opacidad' in parche) d.opacidad = Math.max(0.05, Math.min(1, parche.opacidad));
+        if ('sombra' in parche) d.sombra = parche.sombra ? { ...(d.sombra || {}), ...parche.sombra } : null;
+        cambios.push({ id, antes: el, despues: { ...el, datos: d } });
+      }
     }
     if (cambios.length) this.escena.ejecutar(cambios, 'estilo');
     this.configurar('figura', parche);
+    this.pedirDibujo();
+    this._notificar();
+  }
+
+  // Cambia el marco, borde, sombra y opacidad de las imágenes seleccionadas
+  estiloImagenes(parche) {
+    const cambios = [];
+    for (const id of this.seleccion) {
+      const el = this.escena.get(id);
+      if (!el || el.tipo !== 'imagen') continue;
+      const d = { ...el.datos };
+      if ('borde' in parche) d.borde = parche.borde;
+      if ('grosor' in parche) d.grosor = Math.max(0.5, parche.grosor);
+      if ('estiloBorde' in parche) d.estiloBorde = parche.estiloBorde;
+      if ('marco' in parche) d.marco = parche.marco;
+      if ('radioEsquinas' in parche) d.radioEsquinas = Math.max(0, parche.radioEsquinas);
+      if ('opacidad' in parche) d.opacidad = Math.max(0.05, Math.min(1, parche.opacidad));
+      if ('sombra' in parche) d.sombra = parche.sombra ? { ...(d.sombra || {}), ...parche.sombra } : null;
+      if ('enlace' in parche) d.enlace = parche.enlace;
+      cambios.push({ id, antes: el, despues: { ...el, datos: d, enlace: d.enlace } });
+    }
+    if (cambios.length) {
+      this.escena.ejecutar(cambios, 'estilo_imagen');
+      this.pedirDibujo();
+      this._notificar();
+    }
+  }
+
+  // Asigna o quita un enlace a los elementos seleccionados (Etapa 23)
+  enlazarSeleccion(enlace) {
+    const cambios = [];
+    for (const id of this.seleccion) {
+      const el = this.escena.get(id);
+      if (!el) continue;
+      const d = { ...(el.datos || {}) };
+      d.enlace = enlace;
+      cambios.push({ id, antes: el, despues: { ...el, enlace, datos: d } });
+    }
+    if (cambios.length) {
+      this.escena.ejecutar(cambios, enlace ? 'enlazar elemento' : 'desenlazar elemento');
+      this.pedirDibujo();
+      this._notificar();
+    }
+  }
+
+  // Ramifica un nuevo nodo hijo conectado desde el nodo seleccionado (Etapa 23: Mapas conceptuales)
+  ramificarSeleccion(direccion = 'derecha', texto = 'Concepto derivado') {
+    if (this.seleccion.size !== 1) return null;
+    const padreId = [...this.seleccion][0];
+    const res = ramificarNodoMapaConceptual({
+      escena: this.escena,
+      padreId,
+      direccion,
+      texto,
+      documentoId: this.documentoId,
+    });
+    if (res?.nuevoNodo) {
+      this.seleccion = new Set([res.nuevoNodo.id]);
+      this.pedirDibujo();
+      this._notificar();
+    }
+    return res;
+  }
+
+  // Actualiza o crea las máscaras de oclusión de una imagen con historial de deshacer/rehacer
+  actualizarMascarasImagen(imagenId, nuevasMascaras, descripcion = 'Modificar máscaras de oclusión') {
+    const el = this.escena.get(imagenId);
+    if (!el || el.tipo !== 'imagen') return;
+    const nuevo = {
+      ...el,
+      datos: {
+        ...el.datos,
+        mascaras: nuevasMascaras,
+      },
+    };
+    this.escena.ejecutar([{ id: el.id, antes: el, despues: nuevo }], descripcion);
+    this.pedirDibujo();
+    this._notificar();
+  }
+
+  // Inserta una pegatina o ícono SVG educativo en el centro de la vista
+  insertarIcono(icono, opciones = {}) {
+    const { color = '#2350d8', borde = null, grosor = 2, modo = null, ancho = 72, alto = 72 } = opciones;
+    const vista = visibleEnMundo(this.camara, this.ancho, this.alto);
+    const cx = Math.round(vista.x + (vista.ancho - ancho) / 2);
+    const cy = Math.round(vista.y + (vista.alto - alto) / 2);
+    const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.ICONO, {
+      x: cx,
+      y: cy,
+      ancho,
+      alto,
+      z: this.escena.zMax() + 1,
+      contenedor: this._obtenerContenedor(cy),
+      cara: this._obtenerCara(),
+      datos: {
+        nombre: icono.nombre,
+        iconoId: icono.id,
+        d: icono.d,
+        color: color || '#2350d8',
+        borde,
+        grosor,
+        modo: modo || icono.modo || 'trazo',
+        opacidad: 1,
+        sombra: { activa: false, color: 'rgba(20,25,43,0.35)', desenfoque: 8, x: 2, y: 4 },
+      },
+    });
+    this.escena.ejecutar([{ id: el.id, antes: null, despues: el }], 'insertar_icono');
+    this.seleccion = new Set([el.id]);
+    this._notificar();
+    this.pedirDibujo();
+    return el;
+  }
+
+  // Fondo del documento (página, tarjeta o pizarrón)
+  establecerFondoDocumento(fondo) {
+    this.fondoDocumento = fondo;
+    this.pedirDibujo();
+  }
+
+  // Extrae el color hexadecimal de cualquier píxel del canvas (alternativa universal de cuentagotas)
+  obtenerColorEnPunto(pantallaX, pantallaY) {
+    if (!this.canvas || !this.ctx) return '#ffffff';
+    try {
+      const px = Math.round(pantallaX * this.dpr);
+      const py = Math.round(pantallaY * this.dpr);
+      const pixel = this.ctx.getImageData(px, py, 1, 1).data;
+      const r = pixel[0].toString(16).padStart(2, '0');
+      const g = pixel[1].toString(16).padStart(2, '0');
+      const b = pixel[2].toString(16).padStart(2, '0');
+      return `#${r}${g}${b}`;
+    } catch {
+      return '#ffffff';
+    }
   }
 
   encuadrarTodo() {
@@ -928,7 +1914,11 @@ export class Lienzo {
     return { ...nuevo, x, ancho, alto: layoutDe(nuevo.datos, ancho, undefined, this._opcionesLayout(nuevo.datos)).alto };
   }
 
-  _opcionesLayout(datos) { return datos?.composicion === 'guiada' ? { interlineado: this.renglones.interlineado } : {}; }
+  _opcionesLayout(datos) {
+    const res = datos?.composicion === 'guiada' ? { interlineado: this.renglones.interlineado } : {};
+    if (this.estilos) res.estilos = this.estilos;
+    return res;
+  }
 
   // Herramienta Texto: un clic crea (o edita el texto que haya ahí); arrastrar define el ancho.
   _soltarTexto(g, e) {
@@ -963,7 +1953,11 @@ export class Lienzo {
     const z = this.camara.zoom;
     const tam = Math.max(6, Math.min(800, Math.round(this.ajustes.texto.tamano)));
     const datos = datosTextoNuevo(tam);
-    const ancho1 = ancho || Math.min(3000, Math.max(80, Math.round(320 / z)));
+    let ancho1 = ancho || Math.min(3000, Math.max(80, Math.round(320 / z)));
+    if (!ancho && typeof this.anchoTextoNuevo === 'function') {
+      const hasta = this.anchoTextoNuevo(x, y); // p. ej. hasta el margen derecho de la hoja A4
+      if (Number.isFinite(hasta) && hasta >= 160) ancho1 = Math.min(3000, hasta);
+    }
     let ex = x, ey = enClic ? y - tam * 0.7 : y;
     if (guiaActiva(this.renglones)) { // con «alinear al renglón», el primer renglón del texto se apoya en la guía
       const base = baseDelPrimerRenglon(datos, ancho1, this._opcionesLayout(datos));
@@ -972,7 +1966,7 @@ export class Lienzo {
       if (this.renglones.estilo !== 'rayado') ex = q.x;
     }
     const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TEXTO, {
-      x: ex, y: ey, ancho: ancho1, alto: layoutDe(datos, ancho1).alto, z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(ey), datos,
+      x: ex, y: ey, ancho: ancho1, alto: layoutDe(datos, ancho1).alto, z: this.escena.zMax() + 1, contenedor: this._obtenerContenedor(ey), cara: this._obtenerCara(), datos,
     });
     this._abrirEditor(el, true);
   }
@@ -1089,10 +2083,10 @@ export class Lienzo {
     }
   }
 
-  formatoTexto(accion, valor) {
+  formatoTexto(accion, valor, extra = null) {
     if (!this.editor) return;
     if (accion === 'terminar') { this._terminarTexto('esc'); return; }
-    this.editor.aplicar(accion, valor);
+    this.editor.aplicar(accion, valor, extra);
   }
 
   insertarSimbolo(caracter) {
@@ -1152,48 +2146,213 @@ export class Lienzo {
     if (cambios.length) this.escena.transitorio(cambios);
   }
 
-  // Pegar fuera de un campo (por ejemplo desde Word o la web) crea un texto en la parte visible.
-  _pegar(e) {
-    if (!e.clipboardData) return;
-    const archivo = this._archivoImagen(e.clipboardData);
-    if (archivo && this.editor && !e.defaultPrevented) {
-      e.preventDefault();
-      this._insertarImagenDesdeEditor(archivo, this.editor.puntoInsercion());
-      return;
-    }
-    if (archivo && !this._enCampo(e.target)) {
-      e.preventDefault();
-      this.insertarImagen(archivo);
-      return;
-    }
-    if (this.editor || this._enCampo(e.target) || !this.puedeHerramienta('texto')) return;
-    const html = e.clipboardData.getData('text/html');
-    let bloques = html ? htmlAModelo(html, { colorBase: COLOR_TEXTO }) : [];
-    if (esVacio(bloques)) bloques = textoAModelo(e.clipboardData.getData('text/plain'));
-    if (esVacio(bloques)) return;
-    e.preventDefault();
-    const z = this.camara.zoom;
-    const tam = Math.max(6, Math.round(this.ajustes.texto.tamano));
-    const ancho = Math.max(80, Math.round(Math.min(520, this.ancho * 0.6) / z));
-    const pos = pantallaAMundo(this.camara, this.ancho * 0.2, this.alto * 0.2);
-    const datos = { bloques, tamano: tam, color: COLOR_TEXTO };
-    const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TEXTO, { x: pos.x, y: pos.y, ancho, z: this.escena.zMax() + 1, datos });
-    const nuevo = { ...el, alto: layoutDe(datos, ancho).alto };
-    this.escena.ejecutar([{ id: nuevo.id, antes: null, despues: nuevo }], 'pegar');
-    this.seleccion = new Set([nuevo.id]);
-    this._notificar(); this.pedirDibujo();
+  _detectarFormato() {
+    if (Array.isArray(this.marco)) return 'paginas';
+    if (this.marco) return 'tarjetas';
+    return 'pizarron';
   }
 
-  // Copiar los textos seleccionados deja texto con formato (HTML) y texto plano en el portapapeles.
-  _copiar(e) {
-    if (this.editor || this._enCampo(e.target) || !e.clipboardData) return;
-    const els = [...this.seleccion].map((id) => this.escena.get(id)).filter((x) => x && x.tipo === 'texto').sort((a, b) => a.y - b.y || a.x - b.x);
-    if (!els.length) return;
-    const bloques = els.flatMap((x) => bloquesDe(x.datos));
-    e.clipboardData.setData('text/html', modeloAHtml(bloques));
-    e.clipboardData.setData('text/plain', modeloATexto(bloques));
-    e.preventDefault();
+  // Copiar elementos seleccionados (Ctrl+C o botón Copiar).
+  copiar(e = null) {
+    if (this.editor || this._enCampo(e?.target)) return false;
+    const seleccionados = [...this.seleccion].map((id) => this.escena.get(id)).filter(Boolean);
+    if (!seleccionados.length) return false;
+
+    const formato = this._detectarFormato();
+    const contenedor = this._obtenerContenedor();
+    const caja = unirRects(seleccionados);
+    guardarEnPortapapeles(seleccionados, {
+      documentoId: this.documentoId,
+      formato,
+      contenedor,
+      caja,
+    });
+
+    if (e?.clipboardData) {
+      try {
+        e.clipboardData.setData(TIPO_MIME_ELEMENTOS, JSON.stringify({
+          elementos: seleccionados,
+          origen: { documentoId: this.documentoId, formato, contenedor, caja },
+        }));
+      } catch {
+        /* ignorar fallos en clipboardData personalizado */
+      }
+      const textos = seleccionados.filter((x) => x.tipo === 'texto').sort((a, b) => a.y - b.y || a.x - b.x);
+      if (textos.length) {
+        const bloques = textos.flatMap((x) => bloquesDe(x.datos));
+        e.clipboardData.setData('text/html', modeloAHtml(bloques));
+        e.clipboardData.setData('text/plain', modeloATexto(bloques));
+      }
+      e.preventDefault();
+    }
+
+    this._notificar();
+    return true;
   }
+
+  // Cortar elementos seleccionados (Ctrl+X o botón Cortar): copiar + eliminar en una sola acción del historial.
+  cortar(e = null) {
+    if (this.editor || this._enCampo(e?.target)) return false;
+    const seleccionados = [...this.seleccion].map((id) => this.escena.get(id)).filter((el) => el && !el.bloqueado);
+    if (!seleccionados.length) return false;
+
+    this.copiar(e);
+
+    const cambios = seleccionados.map((el) => ({ id: el.id, antes: el, despues: null }));
+    for (const el of seleccionados) this.seleccion.delete(el.id);
+    this.escena.ejecutar(cambios, 'cortar');
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  // Duplicar elementos seleccionados (Ctrl+D o botón Duplicar): clona la selección con leve desplazamiento en una sola acción.
+  duplicar() {
+    if (this.editor) return false;
+    const seleccionados = [...this.seleccion].map((id) => this.escena.get(id)).filter(Boolean);
+    if (!seleccionados.length) return false;
+
+    const formato = this._detectarFormato();
+    const contenedor = this._obtenerContenedor();
+    const paquete = {
+      elementos: seleccionados,
+      origen: {
+        documentoId: this.documentoId,
+        formato,
+        contenedor,
+        caja: unirRects(seleccionados),
+      },
+      contador: 1,
+    };
+
+    const nuevos = prepararElementosParaPegar(paquete, {
+      documentoId: this.documentoId,
+      formato,
+      contenedor,
+      camara: this.camara,
+      vistaAncho: this.ancho,
+      vistaAlto: this.alto,
+      marco: this.marco,
+      zMax: this.escena.zMax(),
+    });
+
+    if (!nuevos.length) return false;
+
+    const cambios = nuevos.map((el) => ({ id: el.id, antes: null, despues: el }));
+    this.escena.ejecutar(cambios, 'duplicar');
+    this.seleccion = new Set(nuevos.map((el) => el.id));
+    if (nuevos.some((el) => el.tipo === 'imagen')) {
+      prepararImagenes(nuevos).then(() => this.pedirDibujo()).catch(() => {});
+    }
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  // Pegar elementos (Ctrl+V o botón Pegar): convive con texto/imágenes externos y con el portapapeles interno.
+  pegar(e = null) {
+    if (this.editor) return false;
+    if (this._enCampo(e?.target)) return false;
+
+    // Si viene un evento con clipboardData (evento nativo de pegado)
+    if (e?.clipboardData) {
+      // 1. ¿Viene un paquete de elementos de Anotomía?
+      try {
+        const raw = e.clipboardData.getData(TIPO_MIME_ELEMENTOS);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.elementos) && parsed.elementos.length > 0) {
+            if (e.preventDefault) e.preventDefault();
+            return this._insertarPaquete({
+              elementos: parsed.elementos,
+              origen: parsed.origen || {},
+              contador: 1,
+            });
+          }
+        }
+      } catch {
+        /* continuar con otras fuentes */
+      }
+
+      // 2. Verificar imagen externa
+      const archivo = this._archivoImagen(e.clipboardData);
+      if (archivo) {
+        e.preventDefault();
+        this.insertarImagen(archivo);
+        return true;
+      }
+
+      // 3. Verificar texto externo (HTML o plano de Word/web)
+      const html = e.clipboardData.getData('text/html');
+      let bloques = html ? htmlAModelo(html, { colorBase: COLOR_TEXTO }) : [];
+      if (esVacio(bloques)) bloques = textoAModelo(e.clipboardData.getData('text/plain'));
+      if (!esVacio(bloques) && this.puedeHerramienta('texto')) {
+        e.preventDefault();
+        const z = this.camara.zoom;
+        const tam = Math.max(6, Math.round(this.ajustes.texto.tamano));
+        const ancho = Math.max(80, Math.round(Math.min(520, this.ancho * 0.6) / z));
+        const pos = pantallaAMundo(this.camara, this.ancho * 0.2, this.alto * 0.2);
+        const datos = { bloques, tamano: tam, color: COLOR_TEXTO };
+        const el = crearElemento(this.documentoId, TIPOS_ELEMENTO.TEXTO, {
+          x: pos.x,
+          y: pos.y,
+          ancho,
+          z: this.escena.zMax() + 1,
+          contenedor: this._obtenerContenedor(pos.y),
+          cara: this._obtenerCara(),
+          datos,
+        });
+        const nuevo = { ...el, alto: layoutDe(datos, ancho).alto };
+        this.escena.ejecutar([{ id: nuevo.id, antes: null, despues: nuevo }], 'pegar');
+        this.seleccion = new Set([nuevo.id]);
+        this._notificar();
+        this.pedirDibujo();
+        return true;
+      }
+
+      // Si fue un evento nativo con clipboardData pero sin contenido válido externo ni Anotomía, no prevenimos default
+      return false;
+    }
+
+    // 4. Si se invoca programáticamente (botón Pegar o atajo sin clipboardData del sistema)
+    const paquete = obtenerDePortapapeles();
+    if (!paquete || !paquete.elementos || !paquete.elementos.length) return false;
+
+    return this._insertarPaquete(paquete);
+  }
+
+  _insertarPaquete(paquete) {
+    const formato = this._detectarFormato();
+    const contenedor = this._obtenerContenedor();
+    const nuevos = prepararElementosParaPegar(paquete, {
+      documentoId: this.documentoId,
+      formato,
+      contenedor,
+      camara: this.camara,
+      vistaAncho: this.ancho,
+      vistaAlto: this.alto,
+      marco: this.marco,
+      zMax: this.escena.zMax(),
+    });
+
+    if (!nuevos.length) return false;
+
+    const cambios = nuevos.map((el) => ({ id: el.id, antes: null, despues: el }));
+    this.escena.ejecutar(cambios, 'pegar');
+    this.seleccion = new Set(nuevos.map((el) => el.id));
+
+    if (nuevos.some((el) => el.tipo === 'imagen')) {
+      prepararImagenes(nuevos).then(() => this.pedirDibujo()).catch(() => {});
+    }
+
+    this._notificar();
+    this.pedirDibujo();
+    return true;
+  }
+
+  _pegar(e) { this.pegar(e); }
+  _copiar(e) { this.copiar(e); }
+  _cortar(e) { this.cortar(e); }
 
   // En tablets, al abrirse el teclado se achica el área visible: se corre la vista para que lo escrito no quede tapado.
   _vigilarVisualViewport() {
@@ -1258,4 +2417,128 @@ export class Lienzo {
   }
 
   borrarTodo() { this.seleccionarTodo(); this.eliminarSeleccion(); }
+
+  _puntoEnCentroDial(mundo) {
+    if (!this.instrumentoPrecision?.activo) return false;
+    const inst = this.instrumentoPrecision;
+    const local = mundoALocal(inst, mundo);
+    if (inst.tipo === TIPOS_INSTRUMENTO.REGLA) {
+      const cx = inst.longitud / 2;
+      const cy = inst.ancho / 2;
+      return Math.hypot(local.x - cx, local.y - cy) <= 32;
+    }
+    if (inst.tipo === TIPOS_INSTRUMENTO.ESCUADRA) {
+      const cx = inst.catetoA / 3;
+      const cy = inst.catetoB / 3;
+      return Math.hypot(local.x - cx, local.y - cy) <= 34;
+    }
+    if (inst.tipo === TIPOS_INSTRUMENTO.TRANSPORTADOR) {
+      return Math.hypot(local.x, local.y) <= 30;
+    }
+    return false;
+  }
+
+  _puntoCercaInstrumento(mundo, margen = 10) {
+    if (!this.instrumentoPrecision?.activo) return false;
+    const inst = this.instrumentoPrecision;
+    const local = mundoALocal(inst, mundo);
+    if (inst.tipo === TIPOS_INSTRUMENTO.REGLA) {
+      return (
+        local.x >= -margen &&
+        local.x <= inst.longitud + margen &&
+        local.y >= -margen &&
+        local.y <= inst.ancho + margen
+      );
+    }
+    if (inst.tipo === TIPOS_INSTRUMENTO.ESCUADRA) {
+      if (local.x < -margen || local.y < -margen) return false;
+      const val = local.x / inst.catetoA + local.y / inst.catetoB;
+      return val <= 1 + margen / Math.min(inst.catetoA, inst.catetoB);
+    }
+    if (inst.tipo === TIPOS_INSTRUMENTO.TRANSPORTADOR) {
+      const dist = Math.hypot(local.x, local.y);
+      return dist <= inst.radio + margen && local.y <= margen && local.y >= -inst.radio - margen;
+    }
+    return false;
+  }
+
+  activarInstrumento(tipo, opciones = {}) {
+    const centro = pantallaAMundo(this.camara, this.ancho / 2, this.alto / 2);
+    if (tipo === TIPOS_INSTRUMENTO.REGLA) {
+      this.instrumentoPrecision = crearRegla({
+        x: centro.x - 200,
+        y: centro.y - 35,
+        angulo: opciones.angulo ?? 0,
+        ...opciones,
+      });
+    } else if (tipo === TIPOS_INSTRUMENTO.ESCUADRA) {
+      this.instrumentoPrecision = crearEscuadra({
+        x: centro.x - 100,
+        y: centro.y - 100,
+        angulo: opciones.angulo ?? 0,
+        ...opciones,
+      });
+    } else if (tipo === TIPOS_INSTRUMENTO.TRANSPORTADOR) {
+      this.instrumentoPrecision = crearTransportador({
+        x: centro.x,
+        y: centro.y,
+        angulo: opciones.angulo ?? 0,
+        ...opciones,
+      });
+    } else {
+      this.instrumentoPrecision = null;
+    }
+    this._notificar();
+    this.pedirDibujo();
+  }
+
+  desactivarInstrumento() {
+    if (this.instrumentoPrecision) {
+      this.instrumentoPrecision.activo = false;
+      this.instrumentoPrecision = null;
+      this._notificar();
+      this.pedirDibujo();
+    }
+  }
+
+  rotarInstrumento(anguloRad) {
+    if (this.instrumentoPrecision) {
+      this.instrumentoPrecision.angulo = anguloRad;
+      this._notificar();
+      this.pedirDibujo();
+    }
+  }
+
+  moverInstrumento(dx, dy) {
+    if (this.instrumentoPrecision) {
+      this.instrumentoPrecision.x += dx;
+      this.instrumentoPrecision.y += dy;
+      this._notificar();
+      this.pedirDibujo();
+    }
+  }
+
+  toggleCorreccionFormas() {
+    this.correccionFormasActiva = !this.correccionFormasActiva;
+    this._notificar();
+    return this.correccionFormasActiva;
+  }
+
+  setCorreccionFormas(activa) {
+    this.correccionFormasActiva = !!activa;
+    this._notificar();
+  }
+
+  obtenerMetricasLatencia() {
+    const calcProm = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const promSinSnap = calcProm(this._muestrasLatenciaSinSnap || []);
+    const promConSnap = calcProm(this._muestrasLatenciaConSnap || []);
+    return {
+      latenciaSinSnapMs: Number(promSinSnap.toFixed(3)),
+      latenciaConSnapMs: Number(promConSnap.toFixed(3)),
+      sobrecostoSnapMs: Number(Math.max(0, promConSnap).toFixed(3)),
+      muestrasSinSnap: (this._muestrasLatenciaSinSnap || []).length,
+      muestrasConSnap: (this._muestrasLatenciaConSnap || []).length,
+    };
+  }
 }

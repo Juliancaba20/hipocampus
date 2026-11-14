@@ -50,6 +50,9 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # Por defecto esta acción intenta instalar el paquete «tools», que Google ya no publica y hace fallar el paso.
+          packages: platform-tools
 
       - uses: dtolnay/rust-toolchain@stable
         with:

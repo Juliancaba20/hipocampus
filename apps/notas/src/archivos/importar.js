@@ -6,6 +6,8 @@ import { nuevoId } from '../almacen/modelo.js';
 import { obtenerDocumento } from '../almacen/documentos.js';
 import { guardarCarpeta } from '../almacen/carpetas.js';
 import { base64AUint8Array, desempaquetarArchivo } from './formato.js';
+import { remaparAnclajesConectores } from '../lienzo/conectores.js';
+import { importarExamenes } from '../almacen/examenes.js';
 
 // Prepara (sin tocar la base) el documento y los elementos que se van a guardar según la decisión tomada.
 function prepararItem({ documento, elementos }, decision) {
@@ -27,6 +29,7 @@ function prepararItem({ documento, elementos }, decision) {
       mapaIds.set(el.id, nuevoId());
     }
 
+    elementosAGuardar = remaparAnclajesConectores(elementosAGuardar, mapaIds);
     elementosAGuardar = elementosAGuardar.map((el) => {
       const nuevoElId = mapaIds.get(el.id) || nuevoId();
       return {
@@ -43,7 +46,7 @@ function prepararItem({ documento, elementos }, decision) {
 
 // Escribe un documento dentro de una transacción ya abierta. Solo espera pedidos de IndexedDB.
 // Devuelve la cantidad de imágenes que se omitieron por no tener su recurso (ni en el archivo ni en la biblioteca).
-async function escribirItem(tx, { documento, elementos, recursos }, decision) {
+async function escribirItem(tx, { documento, elementos, recursos, repasos }, decision) {
   const docStore = tx.objectStore('documentos');
   const elStore = tx.objectStore('elementos');
   const blobStore = tx.objectStore('blobs');
@@ -94,17 +97,40 @@ async function escribirItem(tx, { documento, elementos, recursos }, decision) {
     }
     elStore.put({ ...el, documentoId: docAGuardar.id });
   }
+
+  // 4. Repasos de repetición espaciada:
+  // Si la decisión es 'reemplazar', se restauran los repasos del archivo.
+  // Si la decisión es 'conservar-ambos' (copia duplicada), el progreso empieza desde cero.
+  if (tx.db.objectStoreNames.contains('repeticion')) {
+    const repStore = tx.objectStore('repeticion');
+    if (decision === 'reemplazar') {
+      const clavesViejasRep = await pedido(repStore.index('documentoId').getAllKeys(docAGuardar.id));
+      for (const k of clavesViejasRep) repStore.delete(k);
+      if (Array.isArray(repasos)) {
+        for (const r of repasos) {
+          if (r && r.tarjetaId) {
+            repStore.put({
+              ...r,
+              documentoId: docAGuardar.id,
+              id: `${docAGuardar.id}:${r.tarjetaId}`,
+            });
+          }
+        }
+      }
+    }
+  }
+
   return { documento: docAGuardar, imagenesOmitidas };
 }
 
 // Guarda varios documentos en UNA sola transacción: si algo falla, no se guarda ninguno.
-// lote: [{ item: { documento, elementos, recursos }, decision }]
+// lote: [{ item: { documento, elementos, recursos, repasos }, decision }]
 export async function persistirLoteImportado(lote) {
   const activos = lote.filter((l) => l.decision !== 'omitir');
   const resultados = lote.map((l) => ({ accion: l.decision === 'omitir' ? 'omitido' : l.decision, documento: l.item.documento, imagenesOmitidas: 0 }));
   if (activos.length === 0) return resultados;
 
-  await transaccion(['documentos', 'elementos', 'blobs'], 'readwrite', async (tx) => {
+  await transaccion(['documentos', 'elementos', 'blobs', 'repeticion'], 'readwrite', async (tx) => {
     for (let i = 0; i < lote.length; i++) {
       if (lote[i].decision === 'omitir') continue;
       const r = await escribirItem(tx, lote[i].item, lote[i].decision);
@@ -198,6 +224,21 @@ export async function importarArchivos(archivos, { solicitarDecision, alImportar
           } catch {
             /* ignorar fallos en carpetas individuales */
           }
+        }
+      }
+
+      // Si el respaldo contenía exámenes del calendario, restaurarlos sin pisar los actuales
+      if (Array.isArray(desempaquetado.examenes) && desempaquetado.examenes.length > 0) {
+        try { await importarExamenes(desempaquetado.examenes); } catch { /* no interrumpir la importación */ }
+      }
+
+      // Si el respaldo contenía plantillas personalizadas, restaurarlas
+      if (Array.isArray(desempaquetado.plantillas) && desempaquetado.plantillas.length > 0) {
+        try {
+          const { importarPlantillasPropias } = await import('../plantillas/index.js');
+          await importarPlantillasPropias(desempaquetado.plantillas);
+        } catch {
+          /* ignorar fallos en plantillas */
         }
       }
     } catch (err) {

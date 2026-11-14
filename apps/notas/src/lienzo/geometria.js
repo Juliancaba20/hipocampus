@@ -14,12 +14,14 @@ export function unirRects(rects) {
   return { x: x1, y: y1, ancho: x2 - x1, alto: y2 - y1 };
 }
 
-// Por ahora solo los elementos de caja se redimensionan; trazos y símbolos se moverán pero no se estirarán.
-export const esRedimensionable = (el) => el.tipo === 'figura' || el.tipo === 'imagen' || el.tipo === 'texto';
+// Todos los tipos de elementos son redimensionables con manijas y proporcionalidad
+export const esRedimensionable = (el) => !!el && ['figura', 'imagen', 'texto', 'trazo', 'simbolo', 'icono'].includes(el.tipo);
 
-// Formas básicas (Etapa 7). Las líneas y flechas van de un extremo a otro de la caja; los «volteos»
-// dicen en qué esquina empieza cada una (así se conserva la dirección aunque la caja sea siempre positiva).
-export const FORMAS = ['rectangulo', 'elipse', 'triangulo', 'rombo', 'linea', 'flecha'];
+// Formas básicas y avanzadas (Etapa 7 y 21A).
+export const FORMAS = [
+  'rectangulo', 'elipse', 'triangulo', 'rombo', 'linea', 'flecha',
+  'estrella', 'hexagono', 'llave', 'nube', 'cilindro', 'cruz', 'flechaDoblada',
+];
 export const esLinea = (el) => el.tipo === 'figura' && (el.datos.forma === 'linea' || el.datos.forma === 'flecha');
 
 export function extremosLinea(el) {
@@ -40,10 +42,44 @@ export function moverExtremo(el, n, dx, dy) {
   return n === 'p1' ? lineaDesdeExtremos(el, { x: a.x + dx, y: a.y + dy }, b) : lineaDesdeExtremos(el, a, { x: b.x + dx, y: b.y + dy });
 }
 
-// Vértices de triángulo y rombo dentro de la caja del elemento.
+// Vértices de polígonos dentro de la caja del elemento.
 export function puntosForma(el) {
   const x2 = el.x + el.ancho, y2 = el.y + el.alto, xm = el.x + el.ancho / 2, ym = el.y + el.alto / 2;
-  return el.datos.forma === 'rombo' ? [[xm, el.y], [x2, ym], [xm, y2], [el.x, ym]] : [[xm, el.y], [x2, y2], [el.x, y2]];
+  const f = el.datos?.forma;
+  if (f === 'rombo') return [[xm, el.y], [x2, ym], [xm, y2], [el.x, ym]];
+  if (f === 'hexagono') {
+    const pts = [];
+    const rx = el.ancho / 2, ry = el.alto / 2;
+    for (let i = 0; i < 6; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 3;
+      pts.push([xm + rx * Math.cos(ang), ym + ry * Math.sin(ang)]);
+    }
+    return pts;
+  }
+  if (f === 'estrella') {
+    const pts = [];
+    const rx = el.ancho / 2, ry = el.alto / 2;
+    const irx = rx * 0.4, iry = ry * 0.4;
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rX = i % 2 === 0 ? rx : irx;
+      const rY = i % 2 === 0 ? ry : iry;
+      pts.push([xm + rX * Math.cos(ang), ym + rY * Math.sin(ang)]);
+    }
+    return pts;
+  }
+  if (f === 'cruz') {
+    const w3 = el.ancho / 3, h3 = el.alto / 3;
+    return [
+      [el.x + w3, el.y], [el.x + 2 * w3, el.y],
+      [el.x + 2 * w3, el.y + h3], [el.x + el.ancho, el.y + h3],
+      [el.x + el.ancho, el.y + 2 * h3], [el.x + 2 * w3, el.y + 2 * h3],
+      [el.x + 2 * w3, el.y + el.alto], [el.x + w3, el.y + el.alto],
+      [el.x + w3, el.y + 2 * h3], [el.x, el.y + 2 * h3],
+      [el.x, el.y + h3], [el.x + w3, el.y + h3],
+    ];
+  }
+  return [[xm, el.y], [x2, y2], [el.x, y2]]; // triangulo por defecto
 }
 
 export function puntoEnPoligono(pts, px, py, tol = 0) {
@@ -121,8 +157,40 @@ export function borrarZona(puntos, cx, cy, r) {
 
 export function puntoEnElemento(el, px, py, tol = 0) {
   if (el.tipo === 'trazo') return puntoEnTrazo(el, px, py, tol);
-  if (esLinea(el)) { const [a, b] = extremosLinea(el); return distSegmento(px, py, a.x, a.y, b.x, b.y) <= Math.max(el.datos.grosor || 2, 2) / 2 + tol; }
-  if (el.tipo === 'figura' && (el.datos.forma === 'triangulo' || el.datos.forma === 'rombo')) return puntoEnPoligono(puntosForma(el), px, py, tol);
+  if (esLinea(el)) {
+    const [a, b] = extremosLinea(el);
+    const radio = Math.max(el.datos.grosor || 2, 2) / 2 + tol;
+    if (el.datos?.tipoConector === 'curvo') {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const factor = Math.max(30, Math.min(180, Math.hypot(dx, dy) * 0.45));
+      let cp1 = { x: a.x, y: a.y }, cp2 = { x: b.x, y: b.y };
+      const dirA = el.datos.anclajeInicio?.puerto;
+      const dirB = el.datos.anclajeFin?.puerto;
+      if (dirA === 'derecha') cp1 = { x: a.x + factor, y: a.y };
+      else if (dirA === 'izquierda') cp1 = { x: a.x - factor, y: a.y };
+      else if (dirA === 'arriba') cp1 = { x: a.x, y: a.y - factor };
+      else if (dirA === 'abajo') cp1 = { x: a.x, y: a.y + factor };
+      else cp1 = Math.abs(dx) >= Math.abs(dy) ? { x: a.x + dx * 0.5, y: a.y } : { x: a.x, y: a.y + dy * 0.5 };
+
+      if (dirB === 'derecha') cp2 = { x: b.x + factor, y: b.y };
+      else if (dirB === 'izquierda') cp2 = { x: b.x - factor, y: b.y };
+      else if (dirB === 'arriba') cp2 = { x: b.x, y: b.y - factor };
+      else if (dirB === 'abajo') cp2 = { x: b.x, y: b.y + factor };
+      else cp2 = Math.abs(dx) >= Math.abs(dy) ? { x: b.x - dx * 0.5, y: b.y } : { x: b.x, y: b.y - dy * 0.5 };
+
+      let prevX = a.x, prevY = a.y;
+      for (let i = 1; i <= 16; i++) {
+        const t = i / 16, u = 1 - t;
+        const curX = u * u * u * a.x + 3 * u * u * t * cp1.x + 3 * u * t * t * cp2.x + t * t * t * b.x;
+        const curY = u * u * u * a.y + 3 * u * u * t * cp1.y + 3 * u * t * t * cp2.y + t * t * t * b.y;
+        if (distSegmento(px, py, prevX, prevY, curX, curY) <= radio) return true;
+        prevX = curX; prevY = curY;
+      }
+      return false;
+    }
+    return distSegmento(px, py, a.x, a.y, b.x, b.y) <= radio;
+  }
+  if (el.tipo === 'figura' && ['triangulo', 'rombo', 'hexagono', 'estrella', 'cruz'].includes(el.datos.forma)) return puntoEnPoligono(puntosForma(el), px, py, tol);
   if (el.tipo === 'figura' && el.datos.forma === 'elipse') {
     const rx = el.ancho / 2 + tol, ry = el.alto / 2 + tol;
     if (rx <= 0 || ry <= 0) return false;
@@ -177,3 +245,329 @@ export function trasladar(el, dx, dy) {
   }
   return { ...el, x: el.x + dx, y: el.y + dy };
 }
+
+// Escala un trazo entre dos cajas envolventes preservando el grosor lógico del lápiz
+export function escalarTrazo(el, cajaNueva, cajaOrig = el) {
+  const origAncho = Math.max(cajaOrig.ancho, 0.001);
+  const origAlto = Math.max(cajaOrig.alto, 0.001);
+  const escalaX = cajaNueva.ancho / origAncho;
+  const escalaY = cajaNueva.alto / origAlto;
+  const nuevosPuntos = el.datos.puntos.map(([px, py, p]) => {
+    const nx = cajaNueva.x + (px - cajaOrig.x) * escalaX;
+    const ny = cajaNueva.y + (py - cajaOrig.y) * escalaY;
+    return [nx, ny, p];
+  });
+  const caja = cajaDeTrazo(nuevosPuntos, el.datos.grosor);
+  return {
+    ...el,
+    x: caja.x,
+    y: caja.y,
+    ancho: caja.ancho,
+    alto: caja.alto,
+    datos: {
+      ...el.datos,
+      puntos: nuevosPuntos,
+    },
+  };
+}
+
+// Escala un símbolo entre dos cajas envolventes adaptando su tamaño tipográfico
+export function escalarSimbolo(el, cajaNueva, cajaOrig = el) {
+  const origAncho = Math.max(cajaOrig.ancho, 0.001);
+  const origAlto = Math.max(cajaOrig.alto, 0.001);
+  const escalaX = cajaNueva.ancho / origAncho;
+  const escalaY = cajaNueva.alto / origAlto;
+  const escala = Math.max(escalaX, escalaY);
+  const nuevoTamano = Math.max(8, Math.min(300, Math.round((el.datos.tamano || 18) * escala)));
+  const nx = cajaNueva.x + (el.x - cajaOrig.x) * escalaX;
+  const ny = cajaNueva.y + (el.y - cajaOrig.y) * escalaY;
+  const nw = Math.max(MIN_TAM, el.ancho * escalaX);
+  const nh = Math.max(MIN_TAM, el.alto * escalaY);
+  return {
+    ...el,
+    x: nx,
+    y: ny,
+    ancho: nw,
+    alto: nh,
+    datos: {
+      ...el.datos,
+      tamano: nuevoTamano,
+    },
+  };
+}
+
+// Escala cualquier elemento (figura, imagen, texto, trazo o símbolo)
+export function escalarElemento(el, cajaNueva, cajaOrig = el) {
+  if (el.tipo === 'trazo') return escalarTrazo(el, cajaNueva, cajaOrig);
+  if (el.tipo === 'simbolo') return escalarSimbolo(el, cajaNueva, cajaOrig);
+  const origAncho = Math.max(cajaOrig.ancho, 0.001);
+  const origAlto = Math.max(cajaOrig.alto, 0.001);
+  const escalaX = cajaNueva.ancho / origAncho;
+  const escalaY = cajaNueva.alto / origAlto;
+  if (esLinea(el)) {
+    const [a, b] = extremosLinea(el);
+    const na = { x: cajaNueva.x + (a.x - cajaOrig.x) * escalaX, y: cajaNueva.y + (a.y - cajaOrig.y) * escalaY };
+    const nb = { x: cajaNueva.x + (b.x - cajaOrig.x) * escalaX, y: cajaNueva.y + (b.y - cajaOrig.y) * escalaY };
+    return lineaDesdeExtremos(el, na, nb);
+  }
+  const nx = cajaNueva.x + (el.x - cajaOrig.x) * escalaX;
+  const ny = cajaNueva.y + (el.y - cajaOrig.y) * escalaY;
+  const nw = Math.max(MIN_TAM, el.ancho * escalaX);
+  const nh = Math.max(MIN_TAM, el.alto * escalaY);
+  return { ...el, x: nx, y: ny, ancho: nw, alto: nh };
+}
+
+// Determina si dos segmentos 2D se intersecan
+export function segmentosSeCortan(x1, y1, x2, y2, x3, y3, x4, y4) {
+  const d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(d) < 1e-9) return false;
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+// Criterio del Lazo: selecciona elementos rodeados o intersecados por el contorno a mano alzada
+export function elementoTocadoPorLazo(el, puntosLazo) {
+  if (!puntosLazo || puntosLazo.length < 3) return false;
+  const cajaLazo = cajaDeTrazo(puntosLazo, 0);
+  if (!rectsSeCruzan(cajaLazo, el)) return false;
+
+  const n = puntosLazo.length;
+  const cx = el.x + el.ancho / 2;
+  const cy = el.y + el.alto / 2;
+  if (puntoEnPoligono(puntosLazo, cx, cy, 2)) return true;
+
+  if (el.tipo === 'trazo' && el.datos?.puntos) {
+    const pts = el.datos.puntos;
+    for (let i = 0; i < pts.length; i++) {
+      if (puntoEnPoligono(puntosLazo, pts[i][0], pts[i][1], (el.datos.grosor || 2) / 2)) return true;
+    }
+    const paso = Math.max(1, Math.floor(pts.length / 50));
+    for (let i = 0; i < pts.length - 1; i += paso) {
+      const p1 = pts[i], p2 = pts[Math.min(pts.length - 1, i + paso)];
+      for (let j = 0; j < n; j++) {
+        const l1 = puntosLazo[j], l2 = puntosLazo[(j + 1) % n];
+        if (segmentosSeCortan(p1[0], p1[1], p2[0], p2[1], l1[0], l1[1], l2[0], l2[1])) return true;
+      }
+    }
+    return false;
+  }
+
+  if (esLinea(el)) {
+    const [a, b] = extremosLinea(el);
+    if (puntoEnPoligono(puntosLazo, a.x, a.y, 2) || puntoEnPoligono(puntosLazo, b.x, b.y, 2)) return true;
+    for (let j = 0; j < n; j++) {
+      const l1 = puntosLazo[j], l2 = puntosLazo[(j + 1) % n];
+      if (segmentosSeCortan(a.x, a.y, b.x, b.y, l1[0], l1[1], l2[0], l2[1])) return true;
+    }
+    return false;
+  }
+
+  const esquinas = [
+    [el.x, el.y],
+    [el.x + el.ancho, el.y],
+    [el.x + el.ancho, el.y + el.alto],
+    [el.x, el.y + el.alto],
+  ];
+  for (const [ex, ey] of esquinas) {
+    if (puntoEnPoligono(puntosLazo, ex, ey, 2)) return true;
+  }
+  for (let k = 0; k < 4; k++) {
+    const e1 = esquinas[k], e2 = esquinas[(k + 1) % 4];
+    for (let j = 0; j < n; j++) {
+      const l1 = puntosLazo[j], l2 = puntosLazo[(j + 1) % n];
+      if (segmentosSeCortan(e1[0], e1[1], e2[0], e2[1], l1[0], l1[1], l2[0], l2[1])) return true;
+    }
+  }
+
+  if (puntosLazo[0][0] >= el.x && puntosLazo[0][0] <= el.x + el.ancho &&
+      puntosLazo[0][1] >= el.y && puntosLazo[0][1] <= el.y + el.alto) {
+    return true;
+  }
+
+  return false;
+}
+
+// ---------- Alinear y Distribuir (Etapa 17C) ----------
+
+/**
+ * Alinea una colección de elementos respecto a la caja que los engloba.
+ * @param {Array<Object>} elementos - Elementos a alinear
+ * @param {'izquierda'|'centro'|'derecha'|'arriba'|'medio'|'abajo'} direccion
+ * @returns {Array<Object>} Nueva lista de elementos alineados
+ */
+export function alinearElementos(elementos, direccion) {
+  if (!Array.isArray(elementos) || elementos.length < 2) return elementos;
+  const caja = unirRects(elementos);
+  if (!caja) return elementos;
+
+  const minX = caja.x;
+  const maxX = caja.x + caja.ancho;
+  const centroX = caja.x + caja.ancho / 2;
+  const minY = caja.y;
+  const maxY = caja.y + caja.alto;
+  const centroY = caja.y + caja.alto / 2;
+
+  return elementos.map((el) => {
+    let dx = 0;
+    let dy = 0;
+    if (direccion === 'izquierda') {
+      dx = minX - el.x;
+    } else if (direccion === 'centro') {
+      dx = (centroX - el.ancho / 2) - el.x;
+    } else if (direccion === 'derecha') {
+      dx = (maxX - el.ancho) - el.x;
+    } else if (direccion === 'arriba') {
+      dy = minY - el.y;
+    } else if (direccion === 'medio') {
+      dy = (centroY - el.alto / 2) - el.y;
+    } else if (direccion === 'abajo') {
+      dy = (maxY - el.alto) - el.y;
+    }
+    return (dx !== 0 || dy !== 0) ? trasladar(el, dx, dy) : el;
+  });
+}
+
+/**
+ * Distribuye uniformemente 3 o más elementos a lo largo del eje horizontal o vertical.
+ * @param {Array<Object>} elementos - Elementos a distribuir
+ * @param {'horizontal'|'vertical'} direccion
+ * @returns {Array<Object>} Nueva lista de elementos distribuidos
+ */
+export function distribuirElementos(elementos, direccion) {
+  if (!Array.isArray(elementos) || elementos.length < 3) return elementos;
+  const esH = direccion === 'horizontal';
+
+  // Ordenar por su centro en el eje correspondiente
+  const ordenados = [...elementos].sort((a, b) => {
+    const ca = esH ? (a.x + a.ancho / 2) : (a.y + a.alto / 2);
+    const cb = esH ? (b.x + b.ancho / 2) : (b.y + b.alto / 2);
+    return ca - cb;
+  });
+
+  const primero = ordenados[0];
+  const ultimo = ordenados[ordenados.length - 1];
+
+  const totalDimension = ordenados.reduce((sum, el) => sum + (esH ? el.ancho : el.alto), 0);
+  const span = esH
+    ? (ultimo.x + ultimo.ancho - primero.x)
+    : (ultimo.y + ultimo.alto - primero.y);
+
+  const n = ordenados.length;
+  const mapaNuevos = new Map();
+  mapaNuevos.set(primero.id, primero);
+  mapaNuevos.set(ultimo.id, ultimo);
+
+  if (span > totalDimension) {
+    // Si hay espacio positivo libre, distribuir huecos uniformes entre las cajas
+    const hueco = (span - totalDimension) / (n - 1);
+    let cursor = esH ? (primero.x + primero.ancho + hueco) : (primero.y + primero.alto + hueco);
+
+    for (let i = 1; i < n - 1; i++) {
+      const el = ordenados[i];
+      const dx = esH ? (cursor - el.x) : 0;
+      const dy = !esH ? (cursor - el.y) : 0;
+      mapaNuevos.set(el.id, trasladar(el, dx, dy));
+      cursor += (esH ? el.ancho : el.alto) + hueco;
+    }
+  } else {
+    // Si se solapan o no hay espacio libre positivo, distribuir centros de forma equidistante
+    const centroIni = esH ? (primero.x + primero.ancho / 2) : (primero.y + primero.alto / 2);
+    const centroFin = esH ? (ultimo.x + ultimo.ancho / 2) : (ultimo.y + ultimo.alto / 2);
+    const paso = (centroFin - centroIni) / (n - 1);
+
+    for (let i = 1; i < n - 1; i++) {
+      const el = ordenados[i];
+      const targetCentro = centroIni + i * paso;
+      const actualCentro = esH ? (el.x + el.ancho / 2) : (el.y + el.alto / 2);
+      const delta = targetCentro - actualCentro;
+      const dx = esH ? delta : 0;
+      const dy = !esH ? delta : 0;
+      mapaNuevos.set(el.id, trasladar(el, dx, dy));
+    }
+  }
+
+  return elementos.map((el) => mapaNuevos.get(el.id) || el);
+}
+
+/**
+ * Calcula guías inteligentes y ajuste magnético (snapping) al mover una selección.
+ * @param {Object} caja - Bounding box de la selección movida en coordenadas tentativas
+ * @param {Array<Object>} otrosElementos - Elementos estáticos de la escena
+ * @param {Object} renglones - Configuración de renglones/cuadrícula
+ * @param {number} umbral - Distancia máxima en unidades del mundo para enganchar
+ * @param {boolean} imanActivo - Interruptor del imán (si es false, no altera nada)
+ */
+export function calcularSnapGuias(caja, otrosElementos = [], renglones = null, umbral = 6, imanActivo = true) {
+  if (!imanActivo || !caja) {
+    return { dx: 0, dy: 0, guias: [] };
+  }
+
+  const fuentesX = [caja.x, caja.x + caja.ancho / 2, caja.x + caja.ancho];
+  const fuentesY = [caja.y, caja.y + caja.alto / 2, caja.y + caja.alto];
+
+  const targetsX = [];
+  const targetsY = [];
+
+  // Objetivos desde otros elementos visibles
+  const limiteElementos = otrosElementos.slice(0, 150);
+  for (const t of limiteElementos) {
+    targetsX.push(t.x, t.x + t.ancho / 2, t.x + t.ancho);
+    targetsY.push(t.y, t.y + t.alto / 2, t.y + t.alto);
+  }
+
+  // Objetivos desde la cuadrícula de renglones si está activa
+  if (renglones && renglones.activos && renglones.estilo !== 'liso') {
+    const inter = Math.max(16, renglones.interlineado || 32);
+    if (renglones.estilo === 'cuadriculado') {
+      for (const fx of fuentesX) {
+        targetsX.push(Math.round(fx / inter) * inter);
+      }
+    }
+    if (renglones.estilo === 'cuadriculado' || renglones.estilo === 'rayado') {
+      for (const fy of fuentesY) {
+        targetsY.push(Math.round(fy / inter) * inter);
+      }
+    }
+  }
+
+  let mejorDx = 0;
+  let minDistX = Infinity;
+  let mejorGuiaX = null;
+
+  for (const fx of fuentesX) {
+    for (const tx of targetsX) {
+      const d = tx - fx;
+      const absD = Math.abs(d);
+      if (absD <= umbral && absD < minDistX) {
+        minDistX = absD;
+        mejorDx = d;
+        mejorGuiaX = tx;
+      }
+    }
+  }
+
+  let mejorDy = 0;
+  let minDistY = Infinity;
+  let mejorGuiaY = null;
+
+  for (const fy of fuentesY) {
+    for (const ty of targetsY) {
+      const d = ty - fy;
+      const absD = Math.abs(d);
+      if (absD <= umbral && absD < minDistY) {
+        minDistY = absD;
+        mejorDy = d;
+        mejorGuiaY = ty;
+      }
+    }
+  }
+
+  const guias = [];
+  if (mejorGuiaX !== null) guias.push({ tipo: 'x', valor: mejorGuiaX });
+  if (mejorGuiaY !== null) guias.push({ tipo: 'y', valor: mejorGuiaY });
+
+  return { dx: mejorDx, dy: mejorDy, guias };
+}
+
+

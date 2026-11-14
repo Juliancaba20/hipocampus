@@ -15,3 +15,5 @@ export function fechaRelativa(t) {
 }
 
 export const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+
+export const TEXTO_ESTADO = { 'sin-cambios': '', pendiente: 'Cambios sin guardar…', guardando: 'Guardando…', guardado: 'Guardado', error: 'No se pudo guardar', 'error-espacio': 'Sin espacio en el dispositivo' };

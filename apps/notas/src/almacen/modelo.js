@@ -1,7 +1,7 @@
 // Modelo de datos de la app de notas (Etapa 2).
 // Todo lo que se guarda pasa por estas funciones, así el formato queda en un solo lugar.
 
-export const VERSION_ESQUEMA = 1;
+export const VERSION_ESQUEMA = 3;
 
 export const FORMATOS = {
   PIZARRON: 'pizarron',
@@ -15,6 +15,7 @@ export const TIPOS_ELEMENTO = {
   IMAGEN: 'imagen',
   SIMBOLO: 'simbolo',
   FIGURA: 'figura',
+  ICONO: 'icono',
 };
 
 // Los renglones son una capa de fondo del documento: nunca mueven ni cambian nada de lo escrito.
@@ -42,7 +43,17 @@ export function nuevoId() {
 
 export const MODOS_ESCRITURA = { AMBOS: 'ambos', MANO: 'mano', TECLADO: 'teclado' };
 
-export function crearDocumento({ titulo = 'Sin título', formato = FORMATOS.PIZARRON, config = {}, escritura = MODOS_ESCRITURA.AMBOS, estiloRenglones, carpetaId = null, etiquetas = [] } = {}) {
+export function crearDocumento({
+  titulo = 'Sin título',
+  formato = FORMATOS.PIZARRON,
+  config = {},
+  escritura = MODOS_ESCRITURA.AMBOS,
+  estiloRenglones,
+  carpetaId = null,
+  etiquetas = [],
+  favorito = false,
+  abiertoEl = null,
+} = {}) {
   const ahora = Date.now();
   return {
     id: nuevoId(),
@@ -56,6 +67,8 @@ export function crearDocumento({ titulo = 'Sin título', formato = FORMATOS.PIZA
     renglones: { ...RENGLONES_POR_DEFECTO, ...(estiloRenglones ? { estilo: estiloRenglones } : {}) },
     carpetaId: carpetaId || null,
     etiquetas: Array.isArray(etiquetas) ? etiquetas : [],
+    favorito: !!favorito,
+    abiertoEl: abiertoEl || null,
     // Ajustes propios de cada formato (tamaño de tarjeta, orden de tarjetas, márgenes de página…)
     config,
   };
@@ -70,7 +83,8 @@ export function crearDocumento({ titulo = 'Sin título', formato = FORMATOS.PIZA
 //   simbolo: { caracter, tamano, color }
 //   figura:  { forma: 'rectangulo' | 'elipse', relleno, borde, grosor }
 // Todos los elementos tienen x, y, ancho, alto (caja que los contiene) y z (orden de apilado).
-export function crearElemento(documentoId, tipo, { x = 0, y = 0, ancho = 0, alto = 0, z = 0, contenedor = null, datos = {} } = {}) {
+// Además soportan grupoId (para agrupar unidades atómicas) y bloqueado (para proteger contra edición accidental).
+export function crearElemento(documentoId, tipo, { x = 0, y = 0, ancho = 0, alto = 0, z = 0, contenedor = null, cara = 'anverso', datos = {}, grupoId = null, bloqueado = false } = {}) {
   const ahora = Date.now();
-  return { id: nuevoId(), documentoId, tipo, x, y, ancho, alto, z, contenedor, datos, creado: ahora, modificado: ahora };
+  return { id: nuevoId(), documentoId, tipo, x, y, ancho, alto, z, contenedor, cara: cara === 'reverso' ? 'reverso' : 'anverso', datos, grupoId: grupoId || null, bloqueado: !!bloqueado, creado: ahora, modificado: ahora };
 }

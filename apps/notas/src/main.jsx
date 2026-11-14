@@ -15,8 +15,13 @@ iniciarPWA();
 // El texto de las notas se dibuja en un canvas: se piden las tipografías de antemano para que estén listas
 // al abrir un documento (cuando terminan de cargar, el lienzo vuelve a medir y a dibujar).
 if (typeof document !== 'undefined' && document.fonts?.load) {
-  ['400 20px "Source Serif 4 Variable"', 'italic 400 20px "Source Serif 4 Variable"', '700 20px "Source Serif 4 Variable"']
-    .forEach((f) => document.fonts.load(f).catch(() => {}));
+  [
+    '400 20px "Source Serif 4 Variable"',
+    'italic 400 20px "Source Serif 4 Variable"',
+    '700 20px "Source Serif 4 Variable"',
+    '400 20px "Bricolage Grotesque Variable"',
+    '700 20px "Bricolage Grotesque Variable"',
+  ].forEach((f) => document.fonts.load(f).catch(() => {}));
 }
 
 createRoot(document.getElementById('root')).render(

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listarDocumentos, purgarBlobsSinReferencia, purgarPapeleraVieja,
   obtenerAjuste, guardarAjuste, obtenerDocumento, EVENTO_ESPACIO_LLENO,
+  verificarEstadoNotaEnlace, guardarDocumento,
 } from '../almacen/index.js';
 import Biblioteca from './Biblioteca.jsx';
 import Papelera from './Papelera.jsx';
@@ -27,6 +28,7 @@ export default function App() {
   const [bienvenidaVisible, setBienvenidaVisible] = useState(false);
   const [ayudaVisible, setAyudaVisible] = useState(false);
   const [espacioLlenoAviso, setEspacioLlenoAviso] = useState(false);
+  const [avisoEnlaceRoto, setAvisoEnlaceRoto] = useState(null);
   const enComputadora = esProgramaDeComputadora(); // programa de Windows, Mac o Linux: archivos reales en el disco
   const [archivosParaAbrir, setArchivosParaAbrir] = useState([]); // archivos .nota que llegan desde fuera (doble clic)
   const [preguntarArchivo, setPreguntarArchivo] = useState(null); // documento recién cerrado que aún no es un archivo
@@ -59,6 +61,47 @@ export default function App() {
     window.addEventListener(EVENTO_ESPACIO_LLENO, alLleno);
     return () => window.removeEventListener(EVENTO_ESPACIO_LLENO, alLleno);
   }, []);
+
+  // Abrir nota por ID con verificación de enlaces rotos o papelera (Etapa 23)
+  const abrirNotaPorId = useCallback(async (notaId, destino = null) => {
+    try {
+      const info = await verificarEstadoNotaEnlace(notaId);
+      if (info.disponible && info.doc) {
+        const d = info.doc;
+        // Registrar visita reciente sin alterar modificado
+        guardarDocumento({ ...d, abiertoEl: Date.now() }, { tocarFecha: false }).catch(() => {});
+        setDoc(destino ? { ...d, destinoInicial: destino } : d);
+        setPantalla('editor');
+      } else if (info.estado === 'papelera') {
+        setAvisoEnlaceRoto({
+          titulo: 'Nota en la papelera',
+          mensaje: `La nota «${info.doc?.titulo || 'enlazada'}» se encuentra en la papelera de reciclaje. Puede restaurarla desde la papelera para volver a abrirla.`,
+        });
+      } else {
+        setAvisoEnlaceRoto({
+          titulo: 'Nota no disponible',
+          mensaje: 'El documento de destino ha sido eliminado o no se encuentra en el almacenamiento local.',
+        });
+      }
+    } catch (e) {
+      setAvisoEnlaceRoto({
+        titulo: 'Nota no disponible',
+        mensaje: 'No fue posible abrir la nota enlazada: ' + e.message,
+      });
+    }
+  }, []);
+
+  // Escucha del evento global nt:abrir-nota disparado desde enlaces en texto y elementos
+  useEffect(() => {
+    const alAbrirNota = (e) => {
+      const detalle = e.detail;
+      if (detalle?.notaId) {
+        abrirNotaPorId(detalle.notaId, detalle.destino || null);
+      }
+    };
+    window.addEventListener('nt:abrir-nota', alAbrirNota);
+    return () => window.removeEventListener('nt:abrir-nota', alAbrirNota);
+  }, [abrirNotaPorId]);
 
   // Cierre de un documento. En el programa de computadora, si todavía no es un archivo del equipo se ofrece guardarlo
   // (solo si se llegó a escribir algo: un documento recién creado y vacío no molesta).
@@ -96,7 +139,7 @@ export default function App() {
       <div className="nt-raiz">
         {pantalla === 'biblioteca' && (
           <Biblioteca
-            abrirDocumento={(d) => { setDoc(d); setPantalla('editor'); }}
+            abrirDocumento={(d, destino = null) => { setDoc(destino ? { ...d, destinoInicial: destino } : d); setPantalla('editor'); }}
             irAPapelera={() => setPantalla('papelera')}
             cantidadPapelera={enPapelera}
             avisarCambio={contarPapelera}
@@ -130,6 +173,21 @@ export default function App() {
               </p>
               <div className="nt-acciones">
                 <button type="button" className="nt-btn nt-btn--primario" onClick={() => setEspacioLlenoAviso(false)}>
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {avisoEnlaceRoto && (
+          <Modal titulo={avisoEnlaceRoto.titulo} alCerrar={() => setAvisoEnlaceRoto(null)} ancho={460}>
+            <div style={{ display: 'grid', gap: '14px' }}>
+              <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.5, color: '#334155' }}>
+                {avisoEnlaceRoto.mensaje}
+              </p>
+              <div className="nt-acciones">
+                <button type="button" className="nt-btn nt-btn--primario" onClick={() => setAvisoEnlaceRoto(null)}>
                   Entendido
                 </button>
               </div>

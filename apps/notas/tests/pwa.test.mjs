@@ -231,3 +231,24 @@ test('autoguardado: guarda lo pendiente cuando se pide guardar todo antes de act
     delete globalThis.window;
   }
 });
+
+// ---------- precarga del procesador de PDF en el service worker (Etapa 19) ----------
+test('SW: precarga y sirve el procesador worker de PDF para funcionamiento sin conexión', async () => {
+  const archivos = ['assets/pdf.worker.js', 'assets/index.js', 'index.html'];
+  const e = entornoSW(archivos);
+  await e.esperar('install');
+
+  // Comprobar que el worker de PDF quedó almacenado en la caché
+  const cacheUrls = e.almacenes[e.cache];
+  assert.ok(cacheUrls.includes('https://ejemplo.test/notas/assets/pdf.worker.js'), 'El worker de PDF debe precachearse');
+
+  // Comprobar que una petición offline al worker se responde directamente desde la caché local sin red
+  const respuestaWorker = await e.pedir({
+    method: 'GET',
+    mode: 'cors',
+    url: 'https://ejemplo.test/notas/assets/pdf.worker.js',
+  });
+  assert.ok(respuestaWorker);
+  assert.equal(respuestaWorker.desdeCache, 'https://ejemplo.test/notas/assets/pdf.worker.js');
+  assert.equal(e.llamadas.fetch.length, 0, 'No debe realizar ninguna petición de red');
+});

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal.jsx';
+import NotasActualizacion from './NotasActualizacion.jsx';
 import { esProgramaDeComputadora } from '../pwa/escritorio.js';
 
 export default function ModalAyuda({ alCerrar }) {
@@ -36,7 +37,18 @@ export default function ModalAyuda({ alCerrar }) {
           >
             Formatos de notas
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={seccion === 'novedades'}
+            className={`nt-btn ${seccion === 'novedades' ? 'nt-btn--primario' : ''}`}
+            onClick={() => setSeccion('novedades')}
+          >
+            Novedades
+          </button>
         </div>
+
+        {seccion === 'novedades' && <NotasActualizacion soloUltima />}
 
         {seccion === 'atajos' && (
           <div style={{ display: 'grid', gap: '8px', fontSize: '13px', maxHeight: '360px', overflowY: 'auto' }}>

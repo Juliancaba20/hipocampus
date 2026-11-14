@@ -1,6 +1,6 @@
 # ESTADO del proyecto · Anotomía (app de notas para estudiantes)
 
-Última actualización: 20 de octubre de 2026 (auditoría de las etapas 0 a 14 y correcciones posteriores)
+Última actualización: 7 de noviembre de 2026 (versión 1.3: comprobación completa de las etapas 17 a 24 y correcciones)
 
 ## Etapas
 - [x] Etapa 0 · Preparación del entorno (aprobada)
@@ -21,15 +21,16 @@
 - [~] Etapa 15 · Publicación en la web (en curso: la app está integrada en la web en `/notas/app/index.html`; falta probar la instalación en PC, Android e iPad por HTTPS y habilitar el botón en `/notas`)
   - Correcciones tras la primera prueba en la web (21 oct 2026): (1) el pizarrón no abría («Can't find variable: herr»): faltaban en `EditorLienzo.jsx` las definiciones de `m`, `sel`, `herr`, `modo`, `conMano` y `conTeclado`; ahora `npm run lint` detecta variables sin definir (`no-undef`). (2) El pizarrón mostraba «No se pudo guardar» al abrirse (el estado inicial vacío caía en el texto de error): ahora se usa `??` en los tres editores. (3) En A4 y tarjetas la barra de páginas/tarjetas tapaba la barra de zoom: ahora van por encima (`bottom: 72px`). (4) El panel de símbolos quedaba recortado por la barra de texto: ahora se dibuja fuera de ella (portal), es más ancho y las categorías se ven todas. (5) Se quitó el cursor de texto azul que flotaba en el lienzo: ya no se escribe «en cualquier parte»; se crea un texto con doble clic (o doble toque) en un lugar vacío, con la herramienta Texto, o se escribe sobre un texto seleccionado. (6) Botón «Abrir Anotomía» de la web: centrado y más grande; `DISPONIBLE = true`.
 - [~] Etapa 16 · Programas de Windows, Mac, Linux y Android con archivos reales y actualizaciones (implementada el 25 de octubre de 2026; falta preparar las claves, la primera compilación en GitHub y probarlos en equipos reales)
-- [ ] Etapa 17 · Edición esencial del lienzo (copiar/pegar, estirar, lazo, agrupar, alinear, imán) — ver docs/PLAN_ETAPAS_17_A_25.md
-- [ ] Etapa 18 · Búsqueda global y exportación (imagen y PDF)
-- [ ] Etapa 19 · PDF: importar y anotar (empieza con prototipo)
-- [ ] Etapa 20 · Texto y páginas A4 al nivel de Word
-- [ ] Etapa 21 · Diseño visual y plantillas (nivel Canva y PowerPoint)
-- [ ] Etapa 22 · Estudio de medicina (oclusión de imagen, texto oculto, repetición espaciada)
-- [ ] Etapa 23 · Conexiones y organización (enlaces entre notas, mapas conceptuales, calendario de exámenes)
-- [ ] Etapa 24 · Herramientas de precisión (regla, transportador, corrección de formas)
-- [ ] Etapa 25 · Audio sincronizado (empieza con prototipo)
+- [x] Etapa 17 · Edición esencial del lienzo: completada al 100 % (17A copiar, cortar, pegar y duplicar; 17B estirar trazos/símbolos, selección múltiple y lazo; 17C agrupar/desagrupar, bloquear/desbloquear, alinear, distribuir, guías inteligentes e imán) verificadas con 226 pruebas en verde — ver docs/PLAN_ETAPAS_17_A_25.md
+- [x] Etapa 18A · Búsqueda de texto en todos los documentos (aprobada: índice propio en IndexedDB `indice_busqueda`, normalización sin tildes ni mayúsculas idéntica a símbolos, búsqueda en títulos, texto de bloques, celdas de tablas, etiquetas y materias; actualización incremental no bloqueante en autoguardado; reconstrucción desde cero con barra de progreso; resultados con fragmento y término resaltado; navegación exacta a coordenadas de pizarrón, página A4 o tarjeta; filtro opcional de papelera; 233 pruebas pasando con 50 documentos de prueba en <50ms)
+- [x] Etapa 18B · Buscar dentro del documento abierto (Ctrl+F) (aprobada: barra de búsqueda con atajo Ctrl+F en los tres formatos Pizarrón, Páginas A4 y Tarjetas; contador «3 de 12» / «0 de 0»; botones siguiente [Enter/▼] y anterior [Shift+Enter/▲]; resaltado de coincidencias en el lienzo y marco activo; centrado de cámara, salto de página y cambio de tarjeta según formato; garantía de no mutación de textos ni historial; interfaz preparada con panel desplegable para «Reemplazar» en Etapa 20; 238 pruebas pasando en total)
+- [~] Etapa 19 · PDF: importar y anotar (implementada con Google AI Studio; auditada el 5 nov 2026; falta probar en tablet real)
+- [~] Etapa 20 · Texto y páginas A4 al nivel de Word (implementada; auditada solo la integración y el formato .nota; falta probar paginación e impresión)
+- [~] Etapa 21 · Diseño visual y plantillas (implementada; auditada solo la integración y el formato .nota)
+- [~] Etapa 22 · Estudio de medicina (implementada; algoritmo de repaso revisado y correcto)
+- [~] Etapa 23 · Conexiones y organización (implementada; corregida tras la auditoría)
+- [~] Etapa 24 · Herramientas de precisión (implementada; sin medir la latencia ni probar con lápiz en tablet)
+- [-] Etapa 25 · Audio sincronizado: descartada por decisión del usuario (no se implementa)
 
 ## Decisiones tomadas
 - Nombre de la app: **Anotomía** (anotar + anatomía). Pendiente: comprobar que no choque con otra marca o app.
@@ -321,6 +322,183 @@
 - **Aclaración de botones:** las tres rayitas (≡) del zoom son «Renglones: encender o apagar» (Alt+G); la flecha ^ de al lado abre sus opciones. Las flechas a la izquierda, habilitadas al seleccionar algo, cambian el orden de capas (frente, subir, bajar, fondo): no mueven el elemento por el lienzo.
 - Pruebas: `tests/hud-y-texto.test.mjs`. Comprobado con navegador automatizado en PC, tablet y celular; **sin comprobar** con lápiz en una tablet real.
 
+## Etapa 17A · Copiar, cortar, pegar y duplicar (22 de octubre de 2026)
+**Qué se hizo**
+- **Módulo central de portapapeles (`src/lienzo/portapapeles.js`):**
+  - Almacenamiento en memoria con réplica en `sessionStorage` (`anotomia.portapapeles`) para persistencia transparente de la selección entre documentos distintos, entre formatos y ante recargas de pestaña, sin alterar IndexedDB con datos no pegados.
+  - Generación de identificadores únicos mediante `nuevoId()` de `modelo.js` (sin `crypto.randomUUID()`).
+  - Tipo MIME propio `application/x-anotomia-elementos` para el intercambio con la API de portapapeles del sistema cuando está disponible.
+- **Acciones y atajos de teclado en el motor de lienzo (`src/lienzo/motor.js`):**
+  - Implementados los métodos `copiar()`, `cortar()`, `pegar()` y `duplicar()`.
+  - Atajos universales en `_tecla`: `Ctrl+C` (copiar), `Ctrl+X` (cortar), `Ctrl+V` (pegar) y `Ctrl+D` (duplicar), con compatibilidad para `Cmd` en macOS.
+  - Suscripción y manejo seguro de eventos de ventana `copy`, `cut` y `paste`.
+  - Cada operación se registra como **una sola acción atómica en el historial** (`escena.ejecutar` con etiqueta `'pegar'`, `'cortar'` o `'duplicar'`), de modo que un solo paso de Deshacer (`Ctrl+Z`) revierte íntegramente la operación y un solo paso de Rehacer (`Ctrl+Y`) la restaura.
+- **Transformación inteligente según formato y destino:**
+  - **Pizarrón:** desplazamiento progresivo de +24 px por cada pegado consecutivo para prevenir superposiciones; si los elementos provienen de otro documento y quedan fuera de vista, se reubican automáticamente en el centro de la cámara actual.
+  - **Tarjetas:** asigna `el.contenedor = tarjetaActiva` y encuadra los elementos dentro de las dimensiones de la ficha (1120×630, 4:3, A6, A5 o personalizado).
+  - **Páginas A4:** sitúa los elementos en la página activa (`paginaActiva`) con su coordenada vertical calculada a partir de `yDePagina(paginaActiva)`, asignando el contenedor correspondiente.
+- **Preservación y seguridad de imágenes:**
+  - Las imágenes conservan idéntica referencia binaria (`datos.blobId`) sin duplicar peso en IndexedDB.
+  - Al eliminar una de las copias, las demás copias conservan su imagen íntegra (garantizado por la comprobación de referencias en `borrarDocumentoDefinitivo` y `purgarBlobsSinReferencia`).
+  - Precarga de texturas en canvas mediante `prepararImagenes` tras el pegado para renderizado sincrónico sin parpadeos.
+- **Convivencia estricta con portapapeles del sistema:**
+  - El pegado de texto externo desde Word, Google Docs o páginas web y el pegado de imágenes del sistema continúan funcionando exactamente como antes.
+  - Al copiar elementos que contienen texto, se escriben adicionalmente los tipos `text/html` y `text/plain` en el portapapeles del sistema para exportación hacia aplicaciones externas.
+- **Interfaz táctil y ergonomía en los tres editores:**
+  - Incorporados 4 botones táctiles ergonómicos en el riel vertical de herramientas (`EditorLienzo.jsx`, `EditorTarjetas.jsx` y `EditorPaginas.jsx`): «Copiar (Ctrl+C)», «Cortar (Ctrl+X)», «Pegar (Ctrl+V)» y «Duplicar (Ctrl+D)».
+  - Nuevos íconos vectoriales SVG en línea en `src/app/EditorComun.jsx` (`copiar`, `cortar`, `pegar`).
+  - El botón «Pegar» refleja dinámicamente si hay contenido disponible en el portapapeles (`ui.puedePegar`).
+  - Dimensionamiento de botones con el estándar del proyecto de al menos 44 × 44 px (`--nt-toque`).
+- **Pruebas automáticas (`tests/portapapeles.test.mjs`):**
+  - 7 pruebas nuevas que validan: inmutabilidad del portapapeles; preservación de `blobId` y generación de nuevos IDs; copia y pegado de 30 elementos mixtos en Pizarrón con historial atómico; cortar (copiar + eliminar); duplicar con desplazamiento; cumplimiento del criterio de aceptación (30 elementos mixtos de Pizarrón copiados y pegados en Tarjetas y Páginas A4 con reversión completa); y convivencia con texto HTML externo.
+  - 212 pruebas pasando al 100 % en verde (antes 205).
+  - Análisis estático (`oxlint`): 0 errores.
+  - Compilación de producción (`npm run build`): exitosa.
+
+**Decisiones tomadas**
+- El portapapeles interno reside en memoria del módulo y se sincroniza en `sessionStorage`: garantiza portabilidad entre vistas de la SPA e inmunidad ante recargas de página, sin escribir registros no confirmados en IndexedDB.
+- Cada pegado consecutivo añade un desplazamiento incremental (`24 * contador`) para que el usuario distinga de inmediato las copias sin perder la disposición relativa de los elementos seleccionados.
+- Si un evento `paste` proviene del sistema con datos de texto pero sin el tipo `application/x-anotomia-elementos`, se preserva el flujo de texto de Word/web original sin sobreescribirlo con datos internos.
+
+**Limitaciones conocidas**
+- El portapapeles entre dispositivos distintos no está implementado (requiere exportar e importar el archivo `.nota`, según lo definido en el alcance general).
+
+**Qué quedó sin comprobar**
+- Verificación física en tablet táctil/iPad con Apple Pencil real (se comprobó con suite automatizada bajo DOM simulado y emulación en servidor local).
+
+## Etapa 17B · Estirar trazos y símbolos, selección múltiple y lazo (22 de octubre de 2026)
+**Qué se hizo**
+- **Escalado y estiramiento de trazos y símbolos (`src/lienzo/geometria.js`):**
+  - `esRedimensionable` ahora incluye trazos (`trazo`) y símbolos (`simbolo`), permitiendo 8 manijas estándar (`nw, n, ne, e, se, s, sw, w`).
+  - `escalarTrazo`: escala proporcionalmente las coordenadas espaciales $X, Y$ de cada punto del trazo respecto a la caja envolvente de origen y destino.
+  - **Preservación estricta del grosor lógico del lápiz:** el grosor (`datos.grosor`) se mantiene en unidades de lienzo inalteradas; no se engrosa ni afina artificialmente al estirar, y las presiones por punto se conservan idénticas.
+  - `escalarSimbolo`: calcula la escala espacial de la caja y escala proporcionalmente el tamaño tipográfico (`datos.tamano`), preservando la nitidez de la fuente tipográfica.
+  - `escalarElemento`: función general que escala de manera armónica figuras (incluyendo extremos de líneas y flechas), imágenes, textos, trazos y símbolos.
+- **Selección múltiple avanzada (`src/lienzo/motor.js`):**
+  - Clic con `Mayús` o `Ctrl` (o `Cmd` en macOS): añade o quita elementos individuales a la selección sin perder los demás.
+  - Arrastre de recuadro (`marco`): selecciona todos los elementos que se cruzan con el rectángulo, combinándose con la selección base si se sostiene Mayús/Ctrl.
+  - `_cajaRedimensionable`: cuando hay más de 1 elemento seleccionado, genera la caja envolvente común (`unirRects`) dotada de 8 manijas de redimensionado grupal.
+  - Arrastrar cualquiera de las manijas de la caja envolvente estira todos los elementos del grupo simultáneamente.
+  - **Historial atómico grupal:** redimensionar, mover, cortar, copiar o eliminar una selección múltiple se registra como **UNA sola acción en el historial** (`escena.registrar(cambios, 'redimensionar')`, etc.), desaciéndose y rehaciéndose en un único paso sin dejar estados intermedios.
+- **Herramienta LAZO (`lazo`):**
+  - Nueva herramienta en el riel de los 3 editores (`EditorLienzo.jsx`, `EditorTarjetas.jsx`, `EditorPaginas.jsx`) con botón táctil de al menos 44×44 px e ícono vectorial específico.
+  - Atajos de teclado: `Q` / `Alt+Q` (y soporte alternativo con `Alt+L`).
+  - Dibuja un contorno libre a mano alzada con cursor `crosshair`. Durante el gesto se dibuja en pantalla con línea punteada azul y relleno traslúcido.
+  - Clic quieto o toque breve (< 8 px de recorrido): selecciona directamente el elemento tocado.
+  - **Criterio de selección del lazo (documentado):**
+    Un elemento queda seleccionado si cumple cualquiera de las siguientes condiciones:
+    1. Su centro geométrico cae dentro del polígono del lazo (`puntoEnPoligono`).
+    2. Si es un trazo: cualquiera de sus puntos cae dentro del lazo, o cualquiera de sus segmentos interseca los segmentos del lazo (`segmentosSeCortan`).
+    3. Si es una línea o flecha: cualquiera de sus extremos cae dentro del lazo o el segmento interseca el lazo.
+    4. Si es una figura de caja, texto, imagen o símbolo: cualquiera de sus 4 esquinas cae dentro del lazo, sus bordes cortan el lazo, o el polígono del lazo se encuentra enteramente dentro de la caja del elemento.
+    - Se realiza descarte rápido $O(1)$ por intersección de rectángulos (`rectsSeCruzan`) antes de la comprobación poligonal, garantizando alta velocidad en escenas con miles de elementos.
+- **Interruptor táctil de proporción fija para tablets:**
+  - El motor incorpora el estado `this.fijarProporcion` y los métodos `toggleFijarProporcion()` y `setFijarProporcion(bool)`.
+  - En redimensionado, la proporción se mantiene si `e.shiftKey || this.fijarProporcion`.
+  - En los 3 editores, al seleccionar elementos aparece un botón táctil ergonómico con ícono de candado (`proporcion`) en el HUD inferior junto al conteo de seleccionados, con atributo `aria-pressed`. Un toque activa la proporción fija para estirar desde esquinas en tablets sin necesidad de teclado físico.
+- **Pruebas automáticas (`tests/lazo-y-estirar.test.mjs`):**
+  - 7 pruebas nuevas:
+    1. `esRedimensionable` con trazos y símbolos.
+    2. `escalarTrazo` con grosor lógico del lápiz inalterado.
+    3. `escalarSimbolo` con escala de tamaño tipográfico.
+    4. `elementoTocadoPorLazo` con elementos interiores, exteriores y cortados.
+    5. Criterio de aceptación: 20 trazos rodeados con lazo, estirados al 150%, movidos, deshechos y rehechos en historial como acciones atómicas, y reapertura de escena sin alteraciones.
+    6. Interruptor táctil `fijarProporcion` manteniendo aspecto 2:1 sin pulsar Mayús.
+    7. Selección múltiple con Mayús y Ctrl clic, agregando, alternando y eliminando en un solo paso de historial.
+  - **219 pruebas pasando al 100 % en verde** (antes 212).
+  - Linter (`oxlint`): 0 errores.
+  - Compilación de producción: exitosa.
+
+**Decisiones tomadas**
+- Criterio de lazo por intersección/inclusión: más amigable para estudiantes de medicina al rodear dibujos o esquemas complejos, sin obligar a una precisión quirúrgica milimétrica en el cierre del trazo.
+- Preservación del grosor de pluma: al estirar notas manuscritas o símbolos, el trazo espacial cambia de tamaño pero el grosor de línea se conserva según las unidades elegidas para la pluma, evitando que los trazos se vuelvan toscos o delgados.
+- El interruptor táctil de proporción se expone en el HUD de pie junto a los seleccionados: permite a usuarios de iPad/Android activar el candado con un toque y estirar con un dedo o lápiz conservando la relación de aspecto exacta.
+
+**Limitaciones conocidas**
+- El lazo selecciona elementos del lienzo visible actual. En tarjetas o páginas A4 opera sobre los elementos de la tarjeta u hoja activa.
+
+**Qué quedó sin comprobar**
+- Verificación física con Apple Pencil en iPad real (validado mediante simulación táctil y suite automatizada de pruebas).
+
+
+
+## Auditoría de las etapas 17 a 24 y correcciones (5 de noviembre de 2026)
+**Estado de partida:** 338 pruebas en verde y compilación correcta, pero `npm run lint` daba 28 errores y la biblioteca no abría.
+
+**Corregido**
+- **Biblioteca sin abrir:** `Biblioteca.jsx` usaba `seccionFiltro`, `proximoExamen` y `modalExamenes` (y sus funciones) sin declararlos: `ReferenceError` al renderizar. Se agregaron los tres `useState`. Dejaba inutilizables los exámenes y las secciones Favoritas y Recientes.
+- **Pérdidas al exportar/importar (`src/archivos/formato.js`):** el saneamiento descartaba el texto, color y tamaño de los nodos de mapas conceptuales (`texto`, `colorTexto`, `tamanoTexto`, `tipoNodoMapa`), los enlaces de figuras, imágenes y demás elementos, el campo `favorito` y `abiertoEl` del documento, y recortaba a 500 caracteres cualquier texto de la configuración (por ejemplo, las notas del orador). El PDF de fondo se registraba como `image/png`. Ahora se conserva todo; el tope de páginas pasó de 500 a 2000 y el de listas de 1000 a 3000.
+- **Conectores al importar como copia y al duplicar:** quedaban anclados a los identificadores del original. Ahora se remapean con `remaparAnclajesConectores` (`importar.js`, `documentos.js`).
+- **Exámenes:** no entraban en el respaldo. Ahora van en `.anotomia-respaldo` (`examenes`) y se restauran sin pisar los existentes (`importarExamenes`).
+- **Fecha de los exámenes:** usaba la fecha UTC; en Argentina, después de las 21:00 el «hoy» pasaba a ser mañana. Ahora usa la fecha local (`fechaLocalISO`).
+- **`npm test` ahora también falla si el lint tiene errores** (antes no los detectaba nadie).
+- Pruebas: 343 (nuevo `tests/auditoria-ida-y-vuelta.test.mjs`; en `archivos.test.mjs` el tope de páginas esperado pasó de 500 a 2000).
+
+**Verificado y correcto:** agrupar, bloquear, alinear, distribuir e imán (17C) conectados en los tres editores y con migraciones del formato (versión 3); búsqueda global (18A) con borrado que limpia el índice; el lector de PDF se precarga en el service worker; el algoritmo de repaso espaciado (SM-2) está documentado y es coherente; el borrado de documentos no deja blobs ni repasos huérfanos.
+
+**Limitaciones conocidas (no se tocaron)**
+- La exportación a PDF genera cada página como imagen JPEG (factor 2, calidad 0,92): el texto no se puede seleccionar ni buscar, ni siquiera el del PDF original que se anotó.
+- Exportar un PDF de hasta 100 MB dentro de un `.nota` (Base64 en un solo JSON) podría agotar la memoria de un iPad. Sin medir.
+- El índice de búsqueda no incluye el texto de los nodos de mapas, las notas del orador ni las notas al pie.
+- 101 advertencias de lint; el paquete principal pesa 1,6 MB (488 KB comprimido) y dos importaciones dinámicas no cumplen su función.
+- `metadata.json`, `.env.example` y `README.md` de Google AI Studio volvieron a aparecer.
+
+**Sin comprobar** (requiere dispositivos reales): lápiz y latencia en tablet (etapas 5 y 24), paginación e impresión de las páginas A4 con texto avanzado, calidad de la exportación a PDF e imagen, modo estudio con oclusión y doble cara, uso sin conexión del lector de PDF en iPad.
+
+## Versión 1.3 (7 de noviembre de 2026): segunda tanda de pruebas y correcciones
+La versión sigue el orden natural: la 1.2 fue la última publicada, así que esta es la **1.3** (en `package.json` figura como `1.3.0`; en pantalla se muestra «1.3»).
+
+**Método:** además de las pruebas automáticas (ahora 351), se ejecutó la aplicación en un navegador real (Chromium) y se recorrieron los flujos como lo haría una persona: crear notas de los tres formatos, dibujar, escribir, deshacer, formas y conectores, agrupar y bloquear, exportar e importar, PDF, plantillas, tarjetas y repaso, exámenes, búsqueda, lápiz y dedo simulados, pizarrón con 5000 trazos y uso sin conexión.
+
+**Corregido en esta tanda**
+- **Insertar un ícono fallaba** (`seleccionarSolo` no existía) y **«Abrir en el lugar exacto» de la búsqueda también** (`seleccionar` no existía). Nueva prueba `tests/interfaz-motor.test.mjs` que verifica que toda llamada de la interfaz al motor apunte a un método real.
+- **Plantillas del sistema:** las seis se creaban sin texto (usaban un formato abreviado que el modelo descartaba), con títulos gigantes y, según el azar del orden de apilado, con cajas que tapaban el contenido. Ahora el texto se convierte, el tamaño se ajusta y el apilado sigue el orden de definición.
+- **Contraste:** una regla CSS general pisaba el color de todos los botones con color (por ejemplo, «Nueva nota» mostraba texto oscuro sobre azul) y los botones del modo estudio mostraban texto blanco sobre blanco. Se corrigió y se definieron cuatro variables CSS que se usaban sin existir.
+- **PDF exportado:** las hojas A4 salían de 280 × 396 mm (se convertía con 72 ppp en lugar de 96). Ahora miden 210 × 297 mm.
+- **«Encuadrar pág.»** solo desplazaba la vista; ahora ajusta el zoom para ver la hoja completa.
+- **Texto en A4:** el cuadro nuevo nacía angosto (≈ 224 px); ahora llega hasta el margen derecho.
+- **PDF anotado:** ya no se crea con renglones (tapaban el texto del documento).
+- **Interfaz:** botones Todas/Favoritas/Recientes sin estilo; estrella de favorito encimada con el menú «⋯»; logo cortado; panel de propiedades tapado por la barra de regla; el botón «Fijar proporción» tenía el mismo candado que «Bloquear»; plurales de «día» y «repasada».
+- **Íconos:** se reemplazaron 18 íconos mal dibujados (13 de Tabler Icons con licencia MIT y 5 dibujados a medida, entre ellos el bisturí). `LICENCIAS.md` se reescribió con la procedencia real.
+
+**Notas de actualización (nuevo)**
+- Datos: `src/app/notasActualizacion.js` (módulo sin React, reutilizable por la web). Para publicar una versión nueva: agregar un objeto al principio de `NOTAS_ACTUALIZACION`, subir `VERSION_APP` y la versión de `package.json`, y ejecutar `npm run notas` (regenera `NOTAS_DE_ACTUALIZACION.md`). Tres pruebas verifican que todo coincida.
+- Se ven en la aplicación (web, instalada y versiones de escritorio, porque comparten el mismo código): enlace «Notas de actualización» en el pie de la biblioteca, con aviso «Nuevo» hasta que se abre una vez por versión, y pestaña «Novedades» dentro de la Ayuda. El pie muestra «Anotomía 1.3».
+
+**Medido**
+- Pizarrón con 5000 trazos: 60 cuadros por segundo al desplazarse y al hacer zoom.
+- Uso sin conexión: el service worker se activa, se precargan los recursos y se puede crear una nota con la red cortada.
+- Lápiz y dedo simulados: el lápiz dibuja, el dedo no dibuja (rechazo de palma) y el pellizco hace zoom.
+
+**Pendiente / recomendado (no bloquea la 1.3)**
+- Las miniaturas de la biblioteca y del panel de páginas A4 son un recuadro en blanco: no muestran el contenido real.
+- Al recargar la página, la app vuelve a la biblioteca en lugar de reabrir la nota que estaba abierta.
+- La exportación a PDF guarda cada página como imagen (el texto no se puede seleccionar ni buscar).
+- El ícono del estómago sigue siendo una gota; el corazón es un corazón de tarjeta. Conviene dibujarlos de nuevo.
+- Los 62 íconos que no se reemplazaron no tienen procedencia verificable (ver `LICENCIAS.md`).
+- Falta probar en tablet real con lápiz (latencia y sensación de escritura) y en iPad (instalación y almacenamiento).
+- Hay una advertencia de la compilación por el tamaño del paquete principal (1,6 MB).
+
+## Comprobación final de la versión 1.3
+Se comprobó en navegador real, etapa por etapa, lo que era posible sin tablet ni iPad. Se corrigieron estos defectos (todos con prueba automática):
+- **Exportar a imagen** mostraba «NaN × NaN» y no descargaba (límites de la escena mal leídos).
+- **PDF anotado**: el texto del PDF original no aparecía en la exportación (el relleno blanco de la hoja tapaba el fondo). Ahora el fondo se pinta después de la hoja.
+- **Exportar PDF**: el módulo ahora configura el worker de PDF.js por sí mismo.
+- **Insignia de enlace y de otros íconos:** se reemplazaron emojis por íconos vectoriales (Tabler, MIT) o por texto en toda la interfaz. El ícono de enlace se dibuja como vector en el lienzo.
+- **Calendario de exámenes:** fecha día/mes/año, materia y fecha como información principal, y aviso de próximo examen distinto del de repaso.
+- **Corrección de formas, imán de regla/escuadra/transportador:** se comprobó con gestos reales; el temporizador de pausa se agregó para mouse quieto.
+- **Reverso de tarjetas:** los textos del reverso se creaban fuera de la tarjeta (invisibles en el estudio). Corregido y reubicado en tarjetas ya guardadas.
+- **Marcadores:** Enter al renombrar creaba un marcador extra. Corregido.
+- **Editor de lápices favoritos:** quedaba tapado por la cabecera. Ahora se abre hacia abajo.
+- **Botones Anterior/Siguiente de página:** sin estilo. Corregidos.
+- **Tabla de contenido, nota al pie, estilos, negrita, justificado, tamaño:** comprobados.
+
+Verificado en navegador: dibujo, deshacer/rehacer, texto, formas y conectores, agrupar y bloquear, búsqueda en la nota y global, exportar/importar (ambos modos), anotar PDF de varias páginas, exportar PDF anotado (5 páginas con texto y anotaciones), exportar imagen (PNG/JPG, escalas, fondo transparente), exámenes, repaso y estudio, notas de actualización, lápices favoritos, plantillas propias, uso sin conexión, rendimiento con 5000 trazos.
+
+Pendiente, que requiere dispositivos reales: latencia y sensación del lápiz en tablet, instalación y almacenamiento en iPad, impresión física. Pendientes de mejora (no bloquean): miniaturas con contenido real; la barra inferior tapa parte de la hoja al encuadrar; el campo de estilo de texto sin nombre accesible; la exportación a PDF guarda cada página como imagen.
+
+<!-- Sección para agregar al final de apps/notas/ESTADO.md de la versión nueva (ajustar las fechas si hace falta) -->
+
 ## Programas de Windows, Mac, Linux y Android (24 y 25 de octubre de 2026)
 - **Pedido:** descargar Anotomía como programa (.exe, y también para Mac, Linux y Android .apk) en lugar de solo la versión web; en Windows, Mac y Linux las notas como archivos reales («Guardar como…» y «Abrir…», como en Word) —modelo B elegido: un archivo por documento, en el lugar que la persona elija—; y actualizaciones automáticas. Donde no hay programa (iPad, iPhone, Chromebook, Windows 7/8 o de 32 bits, Linux con ARM) sigue la versión web.
 - **Regla** (`src/pwa/escritorio.js`, con pruebas): cada sistema que admite programa recibe solo el suyo; el resto, la instalación web. Dentro del programa no se ofrece nada. Los textos de la descarga están en `src/pwa/textosProgramas.js` y los usan la web y el modal.
@@ -333,3 +511,21 @@
 - **Sin comprobar (no hay Windows, Mac ni Android en este entorno):** la compilación real de los instaladores en GitHub, el comportamiento de los complementos de archivos y diálogos en cada sistema, la firma y el reemplazo de versiones, el aviso de seguridad de cada sistema, y todo lo de Android (compilación, firma, instalación, guardado con el selector de archivos del sistema, exportación sin descarga de navegador). Se prueban en la primera ejecución de los flujos.
 - **Límites conocidos:** si un archivo se modifica fuera de Anotomía (por ejemplo por una carpeta sincronizada) mientras está abierto, la próxima escritura de Anotomía lo pisa; no hay actualización automática en Android; en Mac, abrir con doble clic un `.nota` no está soportado (se usa «Abrir…»); los programas no están firmados por un desarrollador reconocido, por lo que cada sistema avisa la primera vez.
 - **Página /notas (25 de octubre de 2026):** muestra las cinco versiones a la vez (Windows, Mac, Linux, Android y la versión online) en una grilla a todo el ancho, con la del dispositivo resaltada. Los programas aún sin publicar se ven apagados y sin enlace. La grilla (`.nt-descargas` en `app/globals.css`) usa seis columnas (3 tarjetas arriba y 2 abajo), 2 columnas en tablet y 1 en celular, y se probó de 360 a 1920 px sin desbordes. El modal «Instalar» dentro de la app sigue ofreciendo solo la versión del dispositivo.
+
+### Traslado a la versión 1.3 (11 de noviembre de 2026)
+- Programas de escritorio y Android reaplicados sobre Anotomía 1.3 (etapas 17 a 24) con fusión de tres vías; se conserva `src-tauri/` y la clave pública del repositorio.
+- Adaptado: las exportaciones a **PDF** e **imagen** (`exportarPdf.js`, `exportarImagen.js`) usan «Guardar como» del sistema dentro del programa (`guardarCopiaEnPrograma`); el diálogo de guardado filtra según la extensión (.nota, .anotomia-respaldo, .pdf, .png, .jpg).
+- `.nota` de un documento vinculado incluye los repasos de tarjetas, pero el repaso por sí solo no dispara la escritura del archivo (se actualiza en la siguiente edición).
+- Sin verificar en equipo real: guardar PDF/imagen y selector de carpeta de copias dentro del programa; impresión (`window.print`) en el programa; Android completo.
+
+### Correcciones de la versión 1.3 (12 de noviembre de 2026)
+- Biblioteca: etiquetas de repaso sin superponerse con «Fijar»/«⋯» y ajuste `repasos.mostrarAvisos` (casilla en «Repaso»).
+- Barra de selección: tenía `pointer-events: none`; ahora recibe clics (enlazar nota, bloquear, alinear, agrupar…).
+- `Modal.jsx` dibuja en `<body>` (portal) y ya no vuelve a enfocar su primer botón en cada redibujado (causa del encabezado/pie letra por letra). Ventanas de estilos y tabla de contenido con CSS propio (`.nt-modal*`) y botón «Cerrar» de texto.
+- HUD: la barra de precisión y la de favoritos (arriba) siguen apiladas; la barra de zoom y la de páginas/tarjetas (abajo) van lado a lado desde 900 px (`.nt-hud-pie`). Favoritos: hasta 12 (`MAXIMO_LAPICES_FAVORITOS`), modo «Editar», «Restablecer», color libre; se pueden quitar todos.
+- Corrección de formas: la línea guarda su sentido (`volteoX/volteoY`), sigue al puntero tras enderezarse y el autoguardado ya no finaliza el gesto en curso.
+- Hojas siempre verticales (se quitó la opción de orientación; los documentos antiguos horizontales se siguen abriendo).
+- Pruebas nuevas: `tests/correcciones-1-3.test.mjs`.
+- Enlaces entre notas: insignia mayor (también en textos, símbolos, íconos y trazos) y `ui.enlaceSeleccion` en el motor para que la barra de selección muestre «Enlazada con …», «Cambiar» y «Quitar enlace».
+- Tipografía: las ventanas dibujadas en `<body>` van dentro de `EnPortal` (`.nt-raiz.nt-portal`) para heredar la fuente de la app. Tabla de contenido con un solo «Cerrar».
+- `SelectorColor` dibuja su desplegable en `<body>` (posición fija, dentro de `EnPortal`) para no quedar recortado por paneles con `overflow: hidden`; el panel de íconos no se cierra al elegir color. Barras inferiores sin barra de desplazamiento visible y con `align-items: stretch` (misma altura).

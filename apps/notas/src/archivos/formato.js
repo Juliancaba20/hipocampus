@@ -2,12 +2,12 @@
 // Empaqueta y desempaqueta documentos de forma autónoma con datos, elementos e imágenes.
 
 import { FORMATOS, MODOS_ESCRITURA, RENGLONES_POR_DEFECTO, TIPOS_ELEMENTO, nuevoId } from '../almacen/modelo.js';
-import { sanear as sanearBloquesTexto } from '../herramientas/texto/modelo.js';
+import { sanear as sanearBloquesTexto, sanearEnlace as sanearEnlaceTexto } from '../herramientas/texto/modelo.js';
 import { normalizarTarjetasConfig } from '../formatos/tarjetas.js';
 import { normalizarPaginasConfig } from '../formatos/paginas.js';
 
 export const ID_APP = 'anotomia';
-export const VERSION_FORMATO = 1;
+export const VERSION_FORMATO = 3;
 export const MIME_TIPO_NOTA = 'application/x-anotomia-nota';
 
 // Convierte ArrayBuffer a Base64 en bloques seguros para no desbordar la pila de llamadas
@@ -63,8 +63,43 @@ export async function descomprimirBytes(bytes) {
 
 // Migraciones de esquema entre versiones del archivo .nota
 export const MIGRACIONES = {
-  // Futuras versiones:
-  // 2: (datos) => { ... },
+  // Versión 2: añade grupoId y bloqueado a los elementos sin pérdida de datos
+  2: (datos) => {
+    const normalizar = (el) => {
+      if (!el || typeof el !== 'object') return;
+      if (el.grupoId === undefined) el.grupoId = null;
+      if (el.bloqueado === undefined) el.bloqueado = false;
+    };
+    if (Array.isArray(datos.elementos)) {
+      datos.elementos.forEach(normalizar);
+    }
+    if (datos.tipo === 'coleccion' && Array.isArray(datos.items)) {
+      for (const item of datos.items) {
+        if (item && Array.isArray(item.elementos)) {
+          item.elementos.forEach(normalizar);
+        }
+      }
+    }
+    return datos;
+  },
+  // Versión 3: añade cara ('anverso' / 'reverso') a los elementos para tarjetas de doble cara
+  3: (datos) => {
+    const normalizar = (el) => {
+      if (!el || typeof el !== 'object') return;
+      if (el.cara === undefined) el.cara = 'anverso';
+    };
+    if (Array.isArray(datos.elementos)) {
+      datos.elementos.forEach(normalizar);
+    }
+    if (datos.tipo === 'coleccion' && Array.isArray(datos.items)) {
+      for (const item of datos.items) {
+        if (item && Array.isArray(item.elementos)) {
+          item.elementos.forEach(normalizar);
+        }
+      }
+    }
+    return datos;
+  },
 };
 
 export function migrarArchivo(datos) {
@@ -89,8 +124,8 @@ export function migrarArchivo(datos) {
   return actual;
 }
 
-// Empaqueta un único documento con sus elementos y recursos en un Uint8Array (.nota)
-export async function empaquetarDocumento(documento, elementos = [], recursos = []) {
+// Empaqueta un único documento con sus elementos, recursos y repasos en un Uint8Array (.nota)
+export async function empaquetarDocumento(documento, elementos = [], recursos = [], repasos = []) {
   const estructura = {
     formatoApp: ID_APP,
     versionArchivo: VERSION_FORMATO,
@@ -99,6 +134,7 @@ export async function empaquetarDocumento(documento, elementos = [], recursos = 
     documento,
     elementos,
     recursos,
+    repasos: Array.isArray(repasos) ? repasos : [],
   };
   const json = JSON.stringify(estructura);
   const bytes = new TextEncoder().encode(json);
@@ -106,7 +142,7 @@ export async function empaquetarDocumento(documento, elementos = [], recursos = 
 }
 
 // Empaqueta múltiples documentos en un solo archivo de copia de respaldo
-export async function empaquetarColeccion(items, carpetas = []) {
+export async function empaquetarColeccion(items, carpetas = [], plantillas = [], examenes = []) {
   const estructura = {
     formatoApp: ID_APP,
     versionArchivo: VERSION_FORMATO,
@@ -114,6 +150,8 @@ export async function empaquetarColeccion(items, carpetas = []) {
     tipo: 'coleccion',
     items, // cada uno: { documento, elementos, recursos }
     carpetas: Array.isArray(carpetas) ? carpetas : [],
+    plantillas: Array.isArray(plantillas) ? plantillas : [],
+    examenes: Array.isArray(examenes) ? examenes : [],
   };
   const json = JSON.stringify(estructura);
   const bytes = new TextEncoder().encode(json);
@@ -161,10 +199,13 @@ export async function desempaquetarArchivo(entrada) {
         creado: typeof c.creado === 'number' ? c.creado : Date.now(),
       }))
       : [];
+    const plantillasValidas = Array.isArray(migrado.plantillas) ? migrado.plantillas : [];
     return {
       tipo: 'coleccion',
       items: itemsValidos,
       carpetas: carpetasValidas,
+      plantillas: plantillasValidas,
+      examenes: sanearExamenesImportados(migrado.examenes),
       exportado: migrado.exportado || Date.now(),
     };
   }
@@ -180,7 +221,7 @@ export async function desempaquetarArchivo(entrada) {
 
 
 // Límites para que un archivo dañado o malicioso no pueda congelar ni romper los editores.
-const MAX_PAGINAS = 500;
+const MAX_PAGINAS = 2000; // un libro de texto en PDF puede superar las 500 páginas
 const MAX_TARJETAS = 500;
 const COORD_MAX = 1e7;
 const CLAVES_PROHIBIDAS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -190,9 +231,9 @@ function limpiarJson(valor, profundidad = 0) {
   if (profundidad > 6) return undefined;
   if (valor === null || typeof valor === 'boolean') return valor;
   if (typeof valor === 'number') return Number.isFinite(valor) ? valor : undefined;
-  if (typeof valor === 'string') return valor.slice(0, 500);
+  if (typeof valor === 'string') return valor.slice(0, 20000); // notas del orador, encabezados, etc.
   if (Array.isArray(valor)) {
-    return valor.slice(0, 1000).map((v) => limpiarJson(v, profundidad + 1)).filter((v) => v !== undefined);
+    return valor.slice(0, 3000).map((v) => limpiarJson(v, profundidad + 1)).filter((v) => v !== undefined);
   }
   if (typeof valor === 'object') {
     const salida = {};
@@ -232,6 +273,21 @@ export function sanearConfigImportada(formato, configCruda) {
     return normalizarTarjetasConfig(base);
   }
   return base;
+}
+
+// Sanea el enlace de un elemento. Conserva el título de la nota enlazada, que el panel de enlaces entrantes usa.
+function sanearEnlaceElemento(enl) {
+  if (!enl || typeof enl !== 'object') return null;
+  if (enl.tipo === 'nota') {
+    if (typeof enl.notaId !== 'string' || !enl.notaId.trim()) return null;
+    return {
+      tipo: 'nota',
+      notaId: enl.notaId.trim().slice(0, 100),
+      titulo: typeof enl.titulo === 'string' ? enl.titulo.replace(/[<>]/g, '').slice(0, 200) : '',
+    };
+  }
+  const url = sanearEnlaceTexto(enl);
+  return url ? { tipo: 'web', url: url.url } : null;
 }
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -277,7 +333,7 @@ export function sanearDocumentoImportado(item) {
 
   const documento = {
     id: docId,
-    version: 1,
+    version: VERSION_FORMATO,
     titulo: tituloLimpio,
     formato,
     creado,
@@ -286,6 +342,8 @@ export function sanearDocumentoImportado(item) {
     escritura,
     renglones,
     carpetaId: (typeof rawDoc.carpetaId === 'string' && rawDoc.carpetaId.trim()) ? rawDoc.carpetaId.trim().slice(0, 100) : null,
+    favorito: !!rawDoc.favorito,
+    abiertoEl: esNumeroFinito(rawDoc.abiertoEl) ? rawDoc.abiertoEl : null,
     etiquetas: Array.isArray(rawDoc.etiquetas)
       ? rawDoc.etiquetas.filter((t) => typeof t === 'string' && t.trim()).map((t) => t.trim().slice(0, 40)).slice(0, 30)
       : [],
@@ -325,35 +383,140 @@ export function sanearDocumentoImportado(item) {
       const herramienta = ['lapiz', 'resaltador', 'borrador'].includes(datosOriginales.herramienta) ? datosOriginales.herramienta : 'lapiz';
       datosSaneados = { puntos, color, grosor, opacidad, herramienta };
     } else if (el.tipo === TIPOS_ELEMENTO.FIGURA) {
-      const formasValidas = ['rectangulo', 'elipse', 'triangulo', 'rombo', 'linea', 'flecha'];
+      const formasValidas = ['rectangulo', 'elipse', 'triangulo', 'rombo', 'linea', 'flecha', 'estrella', 'hexagono', 'llave', 'nube', 'cilindro', 'cruz', 'flechaDoblada', 'flecha_doblada'];
       const forma = formasValidas.includes(datosOriginales.forma) ? datosOriginales.forma : 'rectangulo';
       const borde = esColorValido(datosOriginales.borde) ? datosOriginales.borde : '#2350d8';
-      const relleno = esColorValido(datosOriginales.relleno) ? datosOriginales.relleno : null;
-      const grosor = esNumeroFinito(datosOriginales.grosor) ? Math.max(1, Math.min(40, datosOriginales.grosor)) : 3;
+      let relleno = null;
+      if (esColorValido(datosOriginales.relleno)) {
+        relleno = datosOriginales.relleno;
+      } else if (typeof datosOriginales.relleno === 'string' && datosOriginales.relleno.startsWith('linear-gradient')) {
+        relleno = datosOriginales.relleno;
+      } else if (datosOriginales.relleno && typeof datosOriginales.relleno === 'object' && datosOriginales.relleno.tipo === 'lineal') {
+        relleno = {
+          tipo: 'lineal',
+          angulo: esNumeroFinito(datosOriginales.relleno.angulo) ? datosOriginales.relleno.angulo : 90,
+          paradas: (Array.isArray(datosOriginales.relleno.paradas) ? datosOriginales.relleno.paradas : []).map((p) => ({
+            pos: esNumeroFinito(p.pos) ? Math.max(0, Math.min(1, p.pos)) : 0,
+            color: esColorValido(p.color) ? p.color : '#2350d8',
+          })),
+        };
+      }
+      const grosor = esNumeroFinito(datosOriginales.grosor) ? Math.max(0, Math.min(40, datosOriginales.grosor)) : 3;
+      const estiloBorde = ['solido', 'guiones', 'puntos'].includes(datosOriginales.estiloBorde) ? datosOriginales.estiloBorde : 'solido';
+      const radioEsquinas = esNumeroFinito(datosOriginales.radioEsquinas) ? Math.max(0, Math.min(200, datosOriginales.radioEsquinas)) : 0;
+      const opacidad = esNumeroFinito(datosOriginales.opacidad) ? Math.max(0.05, Math.min(1, datosOriginales.opacidad)) : 1;
+      const sombra = datosOriginales.sombra && typeof datosOriginales.sombra === 'object' ? {
+        activa: !!datosOriginales.sombra.activa,
+        color: esColorValido(datosOriginales.sombra.color) ? datosOriginales.sombra.color : 'rgba(0, 0, 0, 0.35)',
+        desenfoque: esNumeroFinito(datosOriginales.sombra.desenfoque) ? Math.max(0, Math.min(100, datosOriginales.sombra.desenfoque)) : 8,
+        x: esNumeroFinito(datosOriginales.sombra.x) ? Math.max(-100, Math.min(100, datosOriginales.sombra.x)) : 2,
+        y: esNumeroFinito(datosOriginales.sombra.y) ? Math.max(-100, Math.min(100, datosOriginales.sombra.y)) : 4,
+      } : null;
+
+      const tipoConector = datosOriginales.tipoConector === 'curvo' ? 'curvo' : 'recto';
+      const sanearAnclaje = (anc) => {
+        if (!anc || typeof anc !== 'object') return null;
+        if (typeof anc.elementoId !== 'string' || !anc.elementoId.trim()) return null;
+        const puerto = typeof anc.puerto === 'string' && anc.puerto.trim() ? anc.puerto.trim().slice(0, 30) : 'centro';
+        return { elementoId: anc.elementoId.trim().slice(0, 100), puerto };
+      };
+      const anclajeInicio = sanearAnclaje(datosOriginales.anclajeInicio);
+      const anclajeFin = sanearAnclaje(datosOriginales.anclajeFin);
+
       datosSaneados = {
-        forma, borde, relleno, grosor,
+        forma, borde, relleno, grosor, estiloBorde, radioEsquinas, opacidad, sombra,
         volteoX: !!datosOriginales.volteoX,
         volteoY: !!datosOriginales.volteoY,
+        tipoConector, anclajeInicio, anclajeFin,
       };
+      // Nodos de mapas conceptuales (Etapa 23): texto propio de la figura
+      if (typeof datosOriginales.texto === 'string') datosSaneados.texto = datosOriginales.texto.slice(0, 2000);
+      if (esColorValido(datosOriginales.colorTexto)) datosSaneados.colorTexto = datosOriginales.colorTexto;
+      if (esNumeroFinito(datosOriginales.tamanoTexto)) datosSaneados.tamanoTexto = Math.max(6, Math.min(200, datosOriginales.tamanoTexto));
+      if (typeof datosOriginales.tipoNodoMapa === 'string') datosSaneados.tipoNodoMapa = datosOriginales.tipoNodoMapa.slice(0, 30);
     } else if (el.tipo === TIPOS_ELEMENTO.SIMBOLO) {
       const caracter = typeof datosOriginales.caracter === 'string' ? datosOriginales.caracter.slice(0, 4) : '?';
       const tamano = esNumeroFinito(datosOriginales.tamano) ? Math.max(4, Math.min(600, datosOriginales.tamano)) : 32;
       const color = esColorValido(datosOriginales.color) ? datosOriginales.color : '#14192b';
       datosSaneados = { caracter, tamano, color };
+    } else if (el.tipo === TIPOS_ELEMENTO.ICONO) {
+      const nombre = typeof datosOriginales.nombre === 'string' ? datosOriginales.nombre.slice(0, 100) : 'Ícono';
+      const iconoId = typeof datosOriginales.iconoId === 'string' ? datosOriginales.iconoId.slice(0, 100) : 'icono';
+      const d = typeof datosOriginales.d === 'string' ? datosOriginales.d : '';
+      const color = esColorValido(datosOriginales.color) ? datosOriginales.color : '#2350d8';
+      const borde = esColorValido(datosOriginales.borde) ? datosOriginales.borde : null;
+      const grosor = esNumeroFinito(datosOriginales.grosor) ? Math.max(0, Math.min(40, datosOriginales.grosor)) : 2;
+      const modo = datosOriginales.modo === 'relleno' ? 'relleno' : 'trazo';
+      const opacidad = esNumeroFinito(datosOriginales.opacidad) ? Math.max(0.05, Math.min(1, datosOriginales.opacidad)) : 1;
+      const sombra = datosOriginales.sombra && typeof datosOriginales.sombra === 'object' ? {
+        activa: !!datosOriginales.sombra.activa,
+        color: esColorValido(datosOriginales.sombra.color) ? datosOriginales.sombra.color : 'rgba(0, 0, 0, 0.35)',
+        desenfoque: esNumeroFinito(datosOriginales.sombra.desenfoque) ? Math.max(0, Math.min(100, datosOriginales.sombra.desenfoque)) : 8,
+        x: esNumeroFinito(datosOriginales.sombra.x) ? Math.max(-100, Math.min(100, datosOriginales.sombra.x)) : 2,
+        y: esNumeroFinito(datosOriginales.sombra.y) ? Math.max(-100, Math.min(100, datosOriginales.sombra.y)) : 4,
+      } : null;
+      datosSaneados = { nombre, iconoId, d, color, borde, grosor, modo, opacidad, sombra };
     } else if (el.tipo === TIPOS_ELEMENTO.IMAGEN) {
       if (!datosOriginales.blobId || typeof datosOriginales.blobId !== 'string') continue;
+      const marco = ['ninguno', 'redondeado', 'circulo'].includes(datosOriginales.marco) ? datosOriginales.marco : 'ninguno';
+      const radioEsquinas = esNumeroFinito(datosOriginales.radioEsquinas) ? Math.max(0, Math.min(200, datosOriginales.radioEsquinas)) : 16;
+      const borde = esColorValido(datosOriginales.borde) ? datosOriginales.borde : null;
+      const grosor = esNumeroFinito(datosOriginales.grosor) ? Math.max(0, Math.min(40, datosOriginales.grosor)) : 2;
+      const estiloBorde = ['solido', 'guiones', 'puntos'].includes(datosOriginales.estiloBorde) ? datosOriginales.estiloBorde : 'solido';
+      const opacidad = esNumeroFinito(datosOriginales.opacidad) ? Math.max(0.05, Math.min(1, datosOriginales.opacidad)) : 1;
+      const sombra = datosOriginales.sombra && typeof datosOriginales.sombra === 'object' ? {
+        activa: !!datosOriginales.sombra.activa,
+        color: esColorValido(datosOriginales.sombra.color) ? datosOriginales.sombra.color : 'rgba(0, 0, 0, 0.35)',
+        desenfoque: esNumeroFinito(datosOriginales.sombra.desenfoque) ? Math.max(0, Math.min(100, datosOriginales.sombra.desenfoque)) : 8,
+        x: esNumeroFinito(datosOriginales.sombra.x) ? Math.max(-100, Math.min(100, datosOriginales.sombra.x)) : 2,
+        y: esNumeroFinito(datosOriginales.sombra.y) ? Math.max(-100, Math.min(100, datosOriginales.sombra.y)) : 4,
+      } : null;
+
       datosSaneados = {
         blobId: datosOriginales.blobId,
         anchoOriginal: esNumeroFinito(datosOriginales.anchoOriginal) ? datosOriginales.anchoOriginal : el.ancho,
         altoOriginal: esNumeroFinito(datosOriginales.altoOriginal) ? datosOriginales.altoOriginal : el.alto,
+        marco,
+        radioEsquinas,
+        borde,
+        grosor,
+        estiloBorde,
+        opacidad,
+        sombra,
         recorte: datosOriginales.recorte && typeof datosOriginales.recorte === 'object' ? {
           x: esNumeroFinito(datosOriginales.recorte.x) ? datosOriginales.recorte.x : 0,
           y: esNumeroFinito(datosOriginales.recorte.y) ? datosOriginales.recorte.y : 0,
           ancho: esNumeroFinito(datosOriginales.recorte.ancho) ? datosOriginales.recorte.ancho : 1,
           alto: esNumeroFinito(datosOriginales.recorte.alto) ? datosOriginales.recorte.alto : 1,
         } : null,
+        mascaras: Array.isArray(datosOriginales.mascaras)
+          ? datosOriginales.mascaras
+            .filter((m) => m && typeof m === 'object')
+            .slice(0, 100)
+            .map((m) => ({
+              id: typeof m.id === 'string' && m.id.trim() ? m.id.trim().slice(0, 50) : nuevoId(),
+              forma: m.forma === 'elipse' ? 'elipse' : 'rectangulo',
+              rx: esNumeroFinito(m.rx) ? Math.max(0, Math.min(0.99, m.rx)) : 0,
+              ry: esNumeroFinito(m.ry) ? Math.max(0, Math.min(0.99, m.ry)) : 0,
+              rw: esNumeroFinito(m.rw) ? Math.max(0.005, Math.min(1, m.rw)) : 0.15,
+              rh: esNumeroFinito(m.rh) ? Math.max(0.005, Math.min(1, m.rh)) : 0.08,
+              texto: typeof m.texto === 'string' ? m.texto.slice(0, 150) : '',
+              color: esColorValido(m.color) ? m.color : null,
+            }))
+          : [],
       };
     }
+
+    // Enlace a otra nota o a la web (Etapa 23): vale para cualquier tipo de elemento
+    const enlaceElemento = sanearEnlaceElemento(datosOriginales.enlace || el.enlace);
+    if (enlaceElemento) datosSaneados.enlace = enlaceElemento;
+
+    const grupoId = (typeof el.grupoId === 'string' && el.grupoId.trim().length > 0)
+      ? el.grupoId.trim().slice(0, 100)
+      : null;
+    const bloqueado = !!el.bloqueado;
+    const pasoEstudio = esNumeroFinito(el.pasoEstudio) && el.pasoEstudio > 0 ? Math.min(50, Math.round(el.pasoEstudio)) : null;
+    const cara = el.cara === 'reverso' ? 'reverso' : 'anverso';
 
     elementos.push({
       id: elId,
@@ -365,7 +528,12 @@ export function sanearDocumentoImportado(item) {
       alto: el.alto,
       z,
       contenedor,
+      cara,
       datos: datosSaneados,
+      ...(enlaceElemento ? { enlace: enlaceElemento } : {}),
+      grupoId,
+      bloqueado,
+      pasoEstudio,
       creado: esNumeroFinito(el.creado) ? el.creado : creado,
       modificado: esNumeroFinito(el.modificado) ? el.modificado : modificado,
     });
@@ -374,7 +542,7 @@ export function sanearDocumentoImportado(item) {
   // 3. Sanear Recursos (blobs / imágenes en base64)
   const rawRecursos = Array.isArray(item.recursos) ? item.recursos : [];
   const recursos = [];
-  const MIME_IMAGEN = /^image\/(png|jpeg|jpg|webp|svg\+xml|gif)$/i;
+  const MIME_IMAGEN = /^(image\/(png|jpeg|jpg|webp|svg\+xml|gif)|application\/pdf)$/i; // el PDF de fondo también es un recurso
 
   for (const rec of rawRecursos) {
     if (!rec || typeof rec !== 'object') continue;
@@ -391,5 +559,71 @@ export function sanearDocumentoImportado(item) {
     });
   }
 
-  return { documento, elementos, recursos };
+  // 4. Sanear Repasos (Repetición Espaciada / SRS)
+  const rawRepasos = Array.isArray(item.repasos) ? item.repasos : [];
+  const repasos = sanearRepasosImportados(rawRepasos, docId);
+
+  return { documento, elementos, recursos, repasos };
+}
+
+// Sanea los registros de repetición espaciada importados
+export function sanearRepasosImportados(rawRepasos, docIdDefecto = '') {
+  if (!Array.isArray(rawRepasos)) return [];
+  const repasos = [];
+  const estadosValidos = ['nueva', 'aprendiendo', 'repaso'];
+
+  for (const r of rawRepasos) {
+    if (!r || typeof r !== 'object') continue;
+    if (!r.tarjetaId || typeof r.tarjetaId !== 'string') continue;
+    const docId = typeof r.documentoId === 'string' && r.documentoId.trim() ? r.documentoId.trim() : docIdDefecto;
+    const tarjetaId = String(r.tarjetaId).slice(0, 100);
+    const fechaRepaso = typeof r.fechaRepaso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.fechaRepaso) ? r.fechaRepaso : null;
+    const intervalo = typeof r.intervalo === 'number' && Number.isFinite(r.intervalo) ? Math.max(0, Math.round(r.intervalo)) : 0;
+    const facilidad = typeof r.facilidad === 'number' && Number.isFinite(r.facilidad) ? Math.max(1.3, Math.min(10, r.facilidad)) : 2.5;
+    const repeticiones = typeof r.repeticiones === 'number' && Number.isFinite(r.repeticiones) ? Math.max(0, Math.round(r.repeticiones)) : 0;
+    const estado = estadosValidos.includes(r.estado) ? r.estado : 'repaso';
+    const ultimoRepaso = typeof r.ultimoRepaso === 'number' ? r.ultimoRepaso : Date.now();
+    const historial = Array.isArray(r.historial)
+      ? r.historial.filter((h) => h && typeof h === 'object').slice(-50).map((h) => ({
+        fecha: typeof h.fecha === 'string' ? h.fecha.slice(0, 10) : '',
+        calificacion: ['otra-vez', 'dificil', 'bien', 'facil'].includes(h.calificacion) ? h.calificacion : 'bien',
+        intervalo: typeof h.intervalo === 'number' ? Math.max(0, Math.round(h.intervalo)) : 1,
+        facilidad: typeof h.facilidad === 'number' ? Math.max(1.3, Math.min(10, h.facilidad)) : 2.5,
+        timestamp: typeof h.timestamp === 'number' ? h.timestamp : Date.now(),
+      }))
+      : [];
+
+    repasos.push({
+      id: `${docId}:${tarjetaId}`,
+      documentoId: docId,
+      tarjetaId,
+      version: 1,
+      fechaRepaso,
+      intervalo,
+      facilidad,
+      repeticiones,
+      estado,
+      ultimoRepaso,
+      historial,
+    });
+  }
+
+  return repasos;
+}
+
+// Sanea los exámenes del calendario que vienen en un respaldo (Etapa 23).
+export function sanearExamenesImportados(crudos) {
+  if (!Array.isArray(crudos)) return [];
+  const limpiar = (v, max) => String(v || '').replace(/[<>]/g, '').trim().slice(0, max);
+  return crudos.slice(0, 500).filter((e) => e && typeof e === 'object').map((e) => ({
+    id: typeof e.id === 'string' && e.id.trim() ? e.id.trim().slice(0, 100) : nuevoId(),
+    materia: limpiar(e.materia, 100),
+    titulo: limpiar(e.titulo, 200) || 'Examen',
+    fecha: typeof e.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.fecha) ? e.fecha : '',
+    hora: typeof e.hora === 'string' && /^\d{2}:\d{2}$/.test(e.hora) ? e.hora : '',
+    descripcion: limpiar(e.descripcion, 1000),
+    completado: !!e.completado,
+    creado: esNumeroFinito(e.creado) ? e.creado : Date.now(),
+    modificado: esNumeroFinito(e.modificado) ? e.modificado : Date.now(),
+  }));
 }
