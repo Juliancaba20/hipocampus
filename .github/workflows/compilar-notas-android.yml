@@ -109,6 +109,12 @@ jobs:
       - name: Compilar la app web
         run: npm run build
 
+      # Gradle (el proyecto de Android que genera Tauri) ejecuta «npm run tauri ...», pero esta app no tiene un script
+      # «tauri» en su package.json (la herramienta se usa con npx). Se agrega solo dentro de esta compilación,
+      # sin tocar el archivo del repositorio ni el package-lock.json.
+      - name: Habilitar «npm run tauri» para Gradle
+        run: npm pkg set "scripts.tauri=npx --yes @tauri-apps/cli@${TAURI_CLI}"
+
       - name: Preparar el proyecto de Android
         run: npx --yes @tauri-apps/cli@${TAURI_CLI} android init --ci
 
