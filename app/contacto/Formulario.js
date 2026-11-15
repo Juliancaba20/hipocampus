@@ -73,6 +73,10 @@ export default function Formulario() {
         <label>No completar<input type="text" name="web" tabIndex={-1} autoComplete="off" value={web} onChange={(e) => setWeb(e.target.value)} /></label>
       </div>
 
+      <p className="form-legal">
+        Al enviar este mensaje usted acepta el tratamiento de sus datos según la <Link href="/legal/privacidad">Política de privacidad</Link>.
+      </p>
+
       <div className="acciones">
         <p className="form-error" role="alert" hidden={!error}>{error}</p>
         <button className="btn enviar" type="submit" disabled={estado === 'enviando'}>{estado === 'enviando' ? 'Enviando…' : 'Enviar mensaje'}</button>

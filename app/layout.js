@@ -4,8 +4,8 @@ import '@fontsource-variable/source-serif-4/wght-italic.css';
 import './globals.css';
 import Nav from './Nav';
 import Link from 'next/link';
-import { GoogleTagManager } from '@next/third-parties/google';
 import { Analytics } from '@vercel/analytics/next';
+import { avisoCopyright } from './lib/legal';
 
 export const metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://hipocampus.vercel.app'),
@@ -22,13 +22,9 @@ export const metadata = {
 };
 export const viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', colorScheme: 'light', themeColor: '#0f766e' };
 
-// Google Tag Manager: solo se carga en producción, para que las visitas de desarrollo no ensucien las estadísticas.
-const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID || 'GTM-WGZJCV8X';
-
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      {process.env.NODE_ENV === 'production' && <GoogleTagManager gtmId={GTM_ID} />}
       <body>
         <a className="skip" href="#contenido">Saltar al contenido</a>
         <div className="wrap">
@@ -40,6 +36,10 @@ export default function RootLayout({ children }) {
               <a href="https://www.instagram.com/hipocampus.web/" target="_blank" rel="noopener noreferrer">Instagram: @hipocampus.web</a>
               <a href="https://x.com/Hipocampusweb" target="_blank" rel="noopener noreferrer">X: @Hipocampusweb</a>
             </nav>
+            <nav className="legal-links" aria-label="Información legal">
+              <Link href="/legal/terminos">Términos y condiciones</Link> · <Link href="/legal/privacidad">Política de privacidad</Link> · <Link href="/legal/derechos-de-autor">Derechos de autor y licencias</Link>
+            </nav>
+            <p className="legal-links">{avisoCopyright()}</p>
           </footer>
         </div>
         <Analytics />

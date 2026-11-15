@@ -1,6 +1,7 @@
 {
   "name": "notas-app",
   "private": true,
+  "license": "UNLICENSED",
   "version": "1.3.0",
   "type": "module",
   "scripts": {

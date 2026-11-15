@@ -322,3 +322,17 @@ code{background:var(--brand-l);border-radius:6px;padding:0 .35em;font-size:.9em}
 .pm-barra{position:sticky;bottom:.6rem;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:0 0 1.5rem;padding:.6rem 1.25rem;border-radius:999px;background:var(--brand-d);color:#fff;font:700 1rem var(--hd);box-shadow:var(--sh2)}
 .pm-barra b{font-size:1.45rem;letter-spacing:-.02em}
 }
+
+/* ---- Páginas legales y aviso de estadísticas ---- */
+header.top.legal-top h1{font-size:clamp(2rem,5vw,3.4rem)}
+.legal{max-width:52rem;margin:0 auto;padding:2.5rem 0 1rem;line-height:1.7}
+.legal h2{font-size:1.45rem;margin:2.25rem 0 .6rem;letter-spacing:-.01em}
+.legal ul,.legal ol{padding-left:1.4rem;margin:.5rem 0 1rem}
+.legal li{margin:.35rem 0}
+.legal .nota{background:var(--brand-l);border-left:5px solid var(--brand);border-radius:12px;padding:.8rem 1.1rem;margin:0 0 1.25rem}
+.legal table{display:block;overflow-x:auto;width:100%;border-collapse:collapse;margin:1rem 0 1.5rem;font-size:.97rem}
+.legal th,.legal td{border:1px solid var(--line);padding:.55rem .75rem;text-align:left;vertical-align:top}
+.legal th{background:var(--bg2)}
+.legal code{font-size:.92em}
+.legal-links{margin:.6rem 0 0;font-size:.95rem}
+.form-legal{font-size:.92rem;color:var(--mut);margin:.25rem 0 0}

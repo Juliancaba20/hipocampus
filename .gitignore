@@ -16,3 +16,11 @@ public/notas/app/
 *.jks
 *.keystore
 anotomia-actualizaciones.key*
+
+# Archivos del editor y del sistema (datos personales y rutas locales; no se suben)
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+*.log
+

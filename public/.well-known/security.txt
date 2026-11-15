@@ -1,0 +1,7 @@
+# Cómo informar una vulnerabilidad de seguridad en Hipocampus, Anotomía o Teclado Científico.
+# Use el formulario de contacto, elija «Otro motivo» y comience el mensaje con «SEGURIDAD».
+# Por favor no publique el problema hasta que se lo haya podido corregir.
+Contact: https://hipocampus.vercel.app/contacto
+Expires: 2027-11-14T00:00:00.000Z
+Preferred-Languages: es
+Canonical: https://hipocampus.vercel.app/.well-known/security.txt

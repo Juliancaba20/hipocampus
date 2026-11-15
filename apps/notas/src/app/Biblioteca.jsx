@@ -27,6 +27,7 @@ import ModalBusquedaGlobal from './ModalBusquedaGlobal.jsx';
 import ModalRepasoEstadisticas from './ModalRepasoEstadisticas.jsx';
 import ModalExamenes from './ModalExamenes.jsx';
 import ModalNotasActualizacion from './ModalNotasActualizacion.jsx';
+import ModalLegal from './ModalLegal.jsx';
 import { VERSION_APP, versionVisible } from './notasActualizacion.js';
 import { ofertaDeInstalacion, esProgramaDeComputadora, PROGRAMAS } from '../pwa/escritorio.js';
 import { discoDelPrograma, archivoDesdeDisco } from '../archivos/disco.js';
@@ -530,6 +531,7 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
 
   // Estados de Etapa 12: Importación, arrastre y copias
   const [modalCopias, setModalCopias] = useState(false);
+  const [modalLegal, setModalLegal] = useState(false);
   // Se abre solo cuando se llega desde la web con la dirección terminada en #instalar (ver app/notas/Descargas.js)
   const oferta = ofertaDeInstalacion(); // { tipo: 'programa', plataforma } | { tipo: 'web' } | { tipo: 'instalado' } (ya es el programa)
   const enComputadora = esProgramaDeComputadora(); // programa de Windows, Mac o Linux: archivos reales en el disco
@@ -1297,6 +1299,7 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
           <button className="nt-enlace" onClick={abrirNovedades}>
             Notas de actualización{novedadSinVer && <span className="nt-novedad-punto">Nuevo</span>}
           </button>
+          <button className="nt-enlace" onClick={() => setModalLegal(true)}>Legal y licencia</button>
         </span>
         <span>
           Anotomía {versionVisible()}{almac?.disponible ? ` · Espacio usado: ${mb(almac.usado)}` : ''}
@@ -1343,6 +1346,7 @@ export default function Biblioteca({ abrirDocumento, irAPapelera, cantidadPapele
       )}
       {modalInstalar && <ModalInstalar alCerrar={() => setModalInstalar(false)} />}
       {modalNovedades && <ModalNotasActualizacion alCerrar={() => setModalNovedades(false)} />}
+      {modalLegal && <ModalLegal alCerrar={() => setModalLegal(false)} />}
       {consultaDuplicado && (
         <ModalDuplicado
           consulta={consultaDuplicado}

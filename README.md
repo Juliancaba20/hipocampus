@@ -1,3 +1,5 @@
+> **Aviso legal.** © 2026 Hipocampus. Todos los derechos reservados. Software propietario: ver [`LICENSE`](LICENSE). Avisos de terceros: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Seguridad: [`SECURITY.md`](SECURITY.md).
+
 # Hipocampus
 
 Hipocampus es un sitio gratuito y sin fines de lucro con herramientas para estudiantes, en especial de medicina. Hecho con Next.js (App Router).

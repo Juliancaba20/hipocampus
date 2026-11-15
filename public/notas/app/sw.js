@@ -1,7 +1,7 @@
 // Service worker de Anotomía (Etapa 13). Se genera en la compilación (sw/generar.mjs): las dos constantes
 // siguientes se completan con la huella del contenido y la lista de archivos de la app.
 // No usa nada fuera de su propia carpeta.
-const VERSION = '46349c01cc40';
+const VERSION = 'df0515682925';
 const CACHE = 'anotomia-' + VERSION;
 const ARCHIVOS = [
   "./assets/bricolage-grotesque-latin-ext-wght-normal-CcLUaPy7.woff2",
@@ -12,8 +12,12 @@ const ARCHIVOS = [
   "./assets/dist-js-DE9Ux1YK.js",
   "./assets/dist-js-MUY8iCit.js",
   "./assets/event-D6iU7675.js",
-  "./assets/index-B7dDT4S4.css",
-  "./assets/index-xLrJOTFR.js",
+  "./assets/html2canvas-CJa3E3Be.js",
+  "./assets/index-BGI_mU1z.js",
+  "./assets/index-DNX_zUfg.css",
+  "./assets/index.es-u-qJ6e-a.js",
+  "./assets/pdf.worker-BgryrOlp.mjs",
+  "./assets/purify.es-Dqk5qvad.js",
   "./assets/source-serif-4-greek-wght-italic-CUp-f2uw.woff2",
   "./assets/source-serif-4-greek-wght-normal-BpXpdlRW.woff2",
   "./assets/source-serif-4-latin-ext-wght-italic-B_cmBfNX.woff2",
@@ -25,6 +29,7 @@ const ARCHIVOS = [
   "./iconos/icono-192.png",
   "./iconos/icono-512.png",
   "./iconos/icono-mascara-512.png",
+  "./icons.svg",
   "./",
   "./manifest.webmanifest",
   "./index.html"
