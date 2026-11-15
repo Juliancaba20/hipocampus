@@ -31,15 +31,29 @@ export default function RootLayout({ children }) {
           <Nav />
           <div id="contenido">{children}</div>
           <footer>
-            <p>Hecho por un estudiante de medicina, para estudiantes. ¿Encontró un error o tiene una sugerencia? <Link href="/contacto">Infórmelo aquí</Link>.</p>
-            <nav className="redes-sociales" aria-label="Redes sociales">
-              <a href="https://www.instagram.com/hipocampus.web/" target="_blank" rel="noopener noreferrer">Instagram: @hipocampus.web</a>
-              <a href="https://x.com/Hipocampusweb" target="_blank" rel="noopener noreferrer">X: @Hipocampusweb</a>
-            </nav>
-            <nav className="legal-links" aria-label="Información legal">
-              <Link href="/legal/terminos">Términos y condiciones</Link> · <Link href="/legal/privacidad">Política de privacidad</Link> · <Link href="/legal/derechos-de-autor">Derechos de autor y licencias</Link>
-            </nav>
-            <p className="legal-links">{avisoCopyright()}</p>
+            <div className="pie-cols">
+              <div className="pie-marca">
+                <p className="pie-nombre">Hipocampus</p>
+                <p>Hecho por un estudiante de medicina, para estudiantes.</p>
+                <p>¿Encontró un error o tiene una sugerencia? <Link href="/contacto">Infórmelo aquí</Link>.</p>
+              </div>
+              <nav className="pie-bloque" aria-labelledby="pie-redes">
+                <p className="pie-rotulo" id="pie-redes">Redes sociales</p>
+                <ul className="pie-lista">
+                  <li><a href="https://www.instagram.com/hipocampus.web/" target="_blank" rel="noopener noreferrer">Instagram: @hipocampus.web</a></li>
+                  <li><a href="https://x.com/Hipocampusweb" target="_blank" rel="noopener noreferrer">X: @Hipocampusweb</a></li>
+                </ul>
+              </nav>
+              <nav className="pie-bloque" aria-labelledby="pie-legal">
+                <p className="pie-rotulo" id="pie-legal">Información legal</p>
+                <ul className="pie-lista">
+                  <li><Link href="/legal/terminos">Términos y condiciones</Link></li>
+                  <li><Link href="/legal/privacidad">Política de privacidad</Link></li>
+                  <li><Link href="/legal/derechos-de-autor">Derechos de autor y licencias</Link></li>
+                </ul>
+              </nav>
+            </div>
+            <p className="pie-copy">{avisoCopyright()}</p>
           </footer>
         </div>
         <Analytics />

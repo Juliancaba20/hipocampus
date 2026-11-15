@@ -202,7 +202,7 @@ export default function Calculadora() {
       </aside>
 
       <section aria-label="Materias y notas">
-        <div className="note" role="note">
+        <div className="note pm-aviso" role="note">
           <p><b>Habrá más carreras próximamente.</b> Por ahora está disponible Medicina (UBA). ¿Quiere que se agregue la suya? <Link href="/contacto">Sugiérala aquí</Link>.</p>
         </div>
 

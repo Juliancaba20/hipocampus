@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 // Mismos archivos que usa la app: repositorio, nombres de los programas, regla de qué sistema recibe qué y textos.
 import {
   PROGRAMAS, urlDescarga, programaQueAdmite, consultarPublicacion, hayProgramaPublicado,
@@ -75,7 +76,10 @@ export default function Descargas() {
           boton="Abrir Anotomía"
         />
       </div>
-      {publicacion?.version && <p className="mut version">Versión actual de los programas: <b>{publicacion.version}</b></p>}
+      <div className="version-fila">
+        {publicacion?.version && <p className="mut version">Versión actual de los programas: <b>{publicacion.version}</b></p>}
+        <Link className="mas" href="/notas/novedades">Ver las notas de la versión</Link>
+      </div>
 
       <div className="dos-col nt-ayuda">
         <section className="rv">
