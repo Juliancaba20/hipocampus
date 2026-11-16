@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import Descargas from './Descargas';
-import { urlRepo } from './config';
 
 export const viewport = { themeColor: '#b8351f' };
 
@@ -94,7 +93,6 @@ export default function Teclado() {
       <section className="src" style={{ paddingTop: '2rem' }}>
         <p>El teclado funciona sin conexión a internet.</p>
         <Link className="btn" href="/contacto">Informar un problema</Link>
-        <a className="btn" href={`${urlRepo}/releases`}>Todas las versiones</a>
       </section>
     </main>
   );

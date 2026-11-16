@@ -61,7 +61,9 @@ header.top::after{width:16rem;height:16rem;left:-5rem;bottom:-9rem;background:ra
 header.top>*{position:relative;z-index:1;animation:rise .7s var(--ease) both}
 header.top>:nth-child(2){animation-delay:.1s}header.top>:nth-child(3){animation-delay:.2s}
 h1{font-size:clamp(2.5rem,7vw,5.5rem);line-height:1;letter-spacing:-.035em;margin:0;font-weight:800}
-.sub{font-size:clamp(1.15rem,1.5vw,1.4rem);max-width:50rem;margin:1.25rem 0 .5rem;color:rgba(255,255,255,.95)}
+.sub{font-size:clamp(1.15rem,1.5vw,1.4rem);max-width:none;margin:1.25rem 0 .5rem;color:rgba(255,255,255,.95);text-wrap:pretty}
+/* En las subpáginas (las que llevan data-tema, menos la portada) el subtítulo reserva dos renglones en pantallas anchas: así el encabezado mide lo mismo en todas, aunque el texto de una sea corto */
+@media(min-width:48rem){[data-tema]:not([data-tema="inicio"]) header.top .sub{min-height:calc(2*1.6em)}}
 
 /* ---- Tarjetas ---- */
 .card{background:var(--sf);border:1px solid var(--line);border-top:5px solid var(--c,var(--brand));border-radius:var(--rad);padding:1.1rem 1.25rem;box-shadow:var(--sh1);transition:transform .25s var(--ease),box-shadow .25s}
@@ -161,9 +163,19 @@ td.lvl{color:var(--c);font-weight:600;white-space:nowrap}
 .note{border-left:5px solid var(--co);padding:.5rem 1.1rem;margin:1.25rem 0;background:var(--co-l);border-radius:0 12px 12px 0;max-width:48rem}
 .src{max-width:62rem}
 footer a{color:var(--brand-d);font-weight:600}
-footer{margin-top:1rem;padding:2rem 0 3rem;color:var(--mut);text-align:center;border-top:3px solid;border-image:linear-gradient(90deg,var(--brand),var(--co-s)) 1}
+/* ---- Pie de página: tres columnas (mensaje, redes, información legal) y una franja inferior con el aviso de derechos ---- */
+footer{margin-top:1rem;padding:2.25rem 0 2.5rem;color:var(--mut);border-top:3px solid;border-image:linear-gradient(90deg,var(--brand),var(--co-s)) 1}
 footer p{margin:0}
-.redes-sociales{display:flex;justify-content:center;flex-wrap:wrap;gap:.5rem 1.5rem;margin-top:.5rem}
+.pie-cols{display:grid;gap:1.75rem 3rem}
+.pie-marca{display:grid;gap:.5rem;align-content:start}
+.pie-nombre{font:800 1.35rem var(--hd);letter-spacing:-.02em;color:var(--ink)}
+.pie-bloque{align-content:start}
+.pie-rotulo{margin:0 0 .65rem;font:700 .75rem var(--hd);letter-spacing:.08em;text-transform:uppercase;color:var(--co-d)}
+.pie-lista{list-style:none;margin:0;padding:0;display:grid;gap:.5rem}
+.pie-lista a{text-decoration:none}.pie-lista a:hover{text-decoration:underline}
+.pie-copy{margin-top:1.75rem;padding-top:1.1rem;border-top:1px solid var(--line);font-size:.92rem}
+@media(min-width:40rem){.pie-cols{grid-template-columns:repeat(2,minmax(0,1fr))}.pie-marca{grid-column:1/-1}}
+@media(min-width:56rem){.pie-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}.pie-marca{grid-column:auto}}
 
 /* ---------- Teclado Científico (/teclado) ---------- */
 .aviso-movil{display:none;margin:1rem 0 0;padding:.8rem 1rem;border:2px solid var(--brand);border-radius:12px;background:var(--brand-l)}
@@ -258,18 +270,14 @@ code{background:var(--brand-l);border-radius:6px;padding:0 .35em;font-size:.9em}
 
 /* ---- Frase del día (solo portada): franja compacta, de ancho completo ---- */
 .frase{position:relative;overflow:hidden;margin:1.25rem 0 0;padding:.85rem clamp(1rem,2.5vw,1.75rem);background:var(--sf);border:1px solid var(--line);border-left:5px solid var(--co);border-radius:var(--rad);box-shadow:var(--sh1);min-height:4.5rem;animation:rise .6s var(--ease) .15s both}
-.frase-rotulo{margin:0 0 .3rem;font:700 .7rem var(--hd);letter-spacing:.08em;text-transform:uppercase;color:var(--co-d)}
+.frase-rotulo{margin:0 0 .3rem;font:700 .7rem var(--hd);letter-spacing:.08em;text-transform:uppercase;color:var(--co-d);white-space:nowrap}
 .frase figure{margin:0}.frase blockquote{margin:0}
 .frase blockquote p{margin:0;font-style:italic;font-weight:500;font-size:clamp(1.02rem,.4vw + .95rem,1.25rem);line-height:1.4;text-wrap:pretty;hyphens:auto;overflow-wrap:break-word}
 .frase[data-largo="larga"] blockquote p,.frase[data-largo="muy-larga"] blockquote p{font-size:clamp(.95rem,.3vw + .9rem,1.1rem);line-height:1.45}
 .frase figcaption{display:flex;flex-wrap:wrap;gap:0 .6rem;align-items:baseline;margin-top:.3rem;font-family:var(--hd);font-size:.88rem}
 .frase-autor{font-weight:700;color:var(--brand-d)}.frase-autor::before{content:"\2014\00a0"}
 .frase-obra{color:var(--mut)}
-@media(min-width:56rem){
-  .frase{display:grid;grid-template-columns:7.5rem 1fr;column-gap:1.5rem;align-items:start;padding:.8rem 1.75rem}
-  .frase-rotulo{margin:.3rem 0 0;line-height:1.35}
-  .frase blockquote p{max-width:none}
-}
+@media(min-width:56rem){.frase{padding:.8rem 1.75rem}}
 .frase-esqueleto{height:2.5rem;border-radius:10px;background:linear-gradient(90deg,var(--bg2),var(--brand-l),var(--bg2));background-size:200% 100%;animation:brillo 1.6s linear infinite;opacity:.6}
 @keyframes brillo{to{background-position:-200% 0}}
 
@@ -308,6 +316,7 @@ code{background:var(--brand-l);border-radius:6px;padding:0 .35em;font-size:.9em}
 .pm-x{display:grid;place-items:center;width:1.7rem;height:1.7rem;padding:0;border:0;border-radius:50%;background:none;color:var(--mut);font:700 1.2rem/1 var(--hd);cursor:pointer}
 .pm-x:hover{background:var(--co-l);color:var(--co-d)}
 .pm-error{flex:1 0 100%;padding:.4rem .75rem;border-left:4px solid var(--co);background:var(--co-l);border-radius:0 8px 8px 0;color:var(--co-d);font-size:.9rem}
+.pm-aviso{max-width:none}
 .pm-agregar{padding-top:1rem}
 .pm-form{display:grid;gap:1rem;align-items:end;max-width:46rem}
 .pm-form label{display:grid;gap:.35rem}
@@ -325,14 +334,40 @@ code{background:var(--brand-l);border-radius:6px;padding:0 .35em;font-size:.9em}
 
 /* ---- Páginas legales y aviso de estadísticas ---- */
 header.top.legal-top h1{font-size:clamp(2rem,5vw,3.4rem)}
-.legal{max-width:52rem;margin:0 auto;padding:2.5rem 0 1rem;line-height:1.7}
-.legal h2{font-size:1.45rem;margin:2.25rem 0 .6rem;letter-spacing:-.01em}
+.legal{display:grid;gap:1.25rem;padding:2.5rem 0 1rem;line-height:1.7}
+.legal>*{min-width:0}
+.legal-sec{background:var(--sf);border:1px solid var(--line);border-top:5px solid var(--brand);border-radius:var(--rad);padding:1.25rem clamp(1.1rem,3vw,1.75rem) 1.4rem;box-shadow:var(--sh1)}
+.legal-sec>:last-child{margin-bottom:0}
+.legal h2{font-size:1.45rem;margin:0 0 .6rem;letter-spacing:-.01em;line-height:1.25}
+.legal p{margin:.6rem 0}
 .legal ul,.legal ol{padding-left:1.4rem;margin:.5rem 0 1rem}
 .legal li{margin:.35rem 0}
-.legal .nota{background:var(--brand-l);border-left:5px solid var(--brand);border-radius:12px;padding:.8rem 1.1rem;margin:0 0 1.25rem}
-.legal table{display:block;overflow-x:auto;width:100%;border-collapse:collapse;margin:1rem 0 1.5rem;font-size:.97rem}
+.legal .nota{background:var(--brand-l);border-left:5px solid var(--brand);border-radius:12px;padding:.8rem 1.1rem;margin:0}
+/* En pantallas anchas las tarjetas se acomodan en dos columnas continuas (sin huecos entre ellas); el aviso de fecha ocupa todo el ancho */
+@media(min-width:64rem){
+.legal{display:block;column-count:2;column-gap:1.5rem}
+.legal>.nota{column-span:all;margin-bottom:1.5rem}
+.legal-sec{break-inside:avoid;margin:0 0 1.5rem}
+}
+.legal table{display:block;overflow-x:auto;width:100%;min-width:0;border-collapse:collapse;margin:1rem 0 1.5rem;font-size:.97rem}
 .legal th,.legal td{border:1px solid var(--line);padding:.55rem .75rem;text-align:left;vertical-align:top}
-.legal th{background:var(--bg2)}
+.legal th{background:var(--bg2);color:var(--ink)}
 .legal code{font-size:.92em}
-.legal-links{margin:.6rem 0 0;font-size:.95rem}
 .form-legal{font-size:.92rem;color:var(--mut);margin:.25rem 0 0}
+
+/* ---- Notas de la versión (/notas/novedades y /teclado/novedades): una tarjeta por versión, con las secciones en columnas ---- */
+.nv{display:grid;gap:1.25rem;padding:2.5rem 0 1rem}
+.nv-version{background:var(--sf);border:1px solid var(--line);border-top:5px solid var(--brand);border-radius:var(--rad);box-shadow:var(--sh1)}
+.nv-version>summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem 1rem;padding:1rem clamp(1.1rem,3vw,1.75rem);cursor:pointer;font-family:var(--hd)}
+.nv-etiqueta{font-weight:800;font-size:1.3rem;color:var(--brand-d)}
+.nv-fecha{color:var(--mut);font-size:.95rem}
+.nv-cuerpo{padding:0 clamp(1.1rem,3vw,1.75rem) 1.5rem}
+.nv-titulo{margin:0;font-size:1.6rem;letter-spacing:-.02em}
+.nv-resumen{margin:.4rem 0 1.25rem}
+.nv-secciones{display:grid;gap:1.25rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
+.nv-seccion{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:1rem 1.25rem}
+.nv-seccion h3{margin:0 0 .5rem;font-size:1.15rem;color:var(--brand-d)}
+.nv-seccion ul{margin:0;padding-left:1.2rem}.nv-seccion li{margin:.4rem 0}
+.nv-vacio{max-width:none}
+.version-fila{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1.25rem;margin-top:.9rem}
+.version-fila .version,.version-fila .mas{margin:0}

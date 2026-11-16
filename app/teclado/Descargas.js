@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { REPO, ARCHIVOS, urlUltima } from './config';
+import { NOTAS_TECLADO } from './novedades';
 
 const SISTEMAS = [
   { id: 'windows', nombre: 'Windows', detalle: 'Archivo .exe, se abre con doble clic' },
@@ -72,7 +74,12 @@ export default function Descargas() {
           </a>
         ))}
       </div>
-      {version && <p className="mut version">Versión actual: <b>{version}</b></p>}
+      {(version || NOTAS_TECLADO.length > 0) && (
+        <div className="version-fila">
+          {version && <p className="mut version">Versión actual: <b>{version}</b></p>}
+          {NOTAS_TECLADO.length > 0 && <Link className="mas" href="/teclado/novedades">Ver las notas de la versión</Link>}
+        </div>
+      )}
     </>
   );
 }
