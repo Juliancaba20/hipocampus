@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teclado Científico</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <div id="ventana" class="oculta">
+    <header id="barra" data-tauri-drag-region>
+      <nav id="pestanas" role="tablist" aria-label="Grupos de símbolos"><span id="indicador"></span></nav>
+      <span id="titulo-config" data-tauri-drag-region>Configuración</span>
+      <span id="nombre" data-tauri-drag-region aria-live="polite"></span>
+      <div id="botones">
+        <button type="button" id="b-compacto" aria-label="Modo compacto" title="Modo compacto">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path id="icono-compacto" d="M4 10l4-4 4 4"/></svg>
+        </button>
+        <button type="button" id="b-minimizar" aria-label="Minimizar" title="Minimizar">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11h8"/></svg>
+        </button>
+        <button type="button" id="b-config" aria-label="Configuración" title="Configuración">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5h5M11 5h2M3 11h2M8 11h5"/><circle cx="9.5" cy="5" r="1.5"/><circle cx="6.5" cy="11" r="1.5"/></svg>
+        </button>
+        <button type="button" id="b-cerrar" class="cerrar" aria-label="Cerrar" title="Cerrar">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div id="contenido">
+      <div id="recientes" aria-label="Usados recientemente"></div>
+      <main id="cuadricula" role="group" aria-label="Símbolos"></main>
+    </div>
+
+    <section id="config" aria-label="Configuración"></section>
+    <div id="aviso" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="datos.js"></script>
+  <script src="logica.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
