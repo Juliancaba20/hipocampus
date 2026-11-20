@@ -6,7 +6,11 @@ Versión de prueba del teclado con otro motor (Tauri: Rust y la ventana web del 
 
 - Mismo contenido: los símbolos, los nombres, los 6 temas y los tamaños se **generan a partir del programa de Python** (`tools/generar_datos.py`), no se copian a mano.
 - Misma configuración: usa el mismo archivo (`%APPDATA%\TecladoCientifico\config.json`) y las mismas claves; al abrirlo por primera vez conserva posición, color, tamaño, transparencia, recientes y atajo.
-- Aspecto nuevo: bordes redondeados y sombra reales, íconos nítidos, transiciones suaves (color, interruptores, pestaña activa), transparencia por píxel. Respeta «reducir animaciones» del sistema.
+- Aspecto nuevo: bordes redondeados y sombra reales, íconos nítidos, transparencia por píxel. Respeta «reducir animaciones» del sistema.
+- Animaciones (no bloquean ni se interrumpen): destello y pequeño rebote al tocar una tecla, entrada en cascada al cambiar de pestaña, recientes que se deslizan y barrido de color de izquierda a derecha (0,38 s) al cambiar de tema. El barrido corre sobre una copia de la pantalla que no recibe clics: el teclado de abajo ya está en el color nuevo y se puede usar enseguida; si se elige otro color a mitad de camino, el que corre termina y luego se hace el último.
+- Se puede dejar pegado a cualquier borde de la pantalla, incluido el superior (no hay margen transparente arriba). Al soltarlo se lo acomoda para que no quede con una parte afuera, igual que en la versión de Python. Si al abrirlo la posición guardada quedó fuera (otro monitor), se corrige.
+- No aparece en Alt+Tab ni en la barra de tareas (en Windows se le pone el estilo de «ventana de herramientas»): antes, como siempre está encima, Alt+Tab alternaba entre el programa de atrás y el teclado. El botón «–» lo oculta junto al reloj; se vuelve con un clic en el ícono (o con el atajo). Si no hay bandeja, minimiza.
+- Nitidez: usa «Segoe UI» (la misma tipografía que la versión de Python) y la transparencia se aplica solo a los fondos, no a las letras, para que los símbolos se vean siempre opacos. Una ventana transparente no puede usar ClearType (el suavizado de subpíxeles de Windows), así que el texto puede verse algo menos «duro» que en la versión de Python; si sigue notándose, la alternativa es una ventana sin transparencia.
 - Sin parpadeos por diseño: las teclas, los recientes y el panel de configuración se crean una sola vez y los cambios solo modifican lo que cambia; la ventana se muestra recién cuando está armada y en su lugar.
 - No roba el foco: la ventana se crea como «sin foco» (en Windows, `WS_EX_NOACTIVATE`) y ningún botón toma el foco del navegador interno.
 - Escritura: Rust envía el símbolo como texto Unicode (`SendInput` en Windows). Si no se puede, lo copia al portapapeles y avisa.
@@ -26,7 +30,7 @@ Para compilarlo en su PC: instalar Rust (con las herramientas de C++ de Visual S
 
 ## Qué comprobar en Windows (en este orden)
 
-Lo único que no pude verificar fuera de Windows son los puntos 1 a 4: son justamente el motivo de la prueba.
+Lo único que no pude verificar fuera de Windows son los puntos 1 a 5 y el 10: son justamente el motivo de la prueba.
 
 1. **Foco (lo más importante).** Abra el Bloc de notas, deje el cursor escribiendo, haga clic en varias teclas. Esperado: los símbolos aparecen en el Bloc de notas y el cursor sigue ahí, sin parpadear la barra de título del Bloc de notas (que no pase a gris). Repítalo en Word y en el navegador.
 2. **Transparencia y bordes.** Esperado: esquinas redondeadas con sombra y sin marco ni fondo negro o blanco alrededor. Cambie la transparencia (⚙ > Transparencia) y confirme que se ve el escritorio detrás.
@@ -37,6 +41,10 @@ Lo único que no pude verificar fuera de Windows son los puntos 1 a 4: son justa
 7. **Inicio automático.** Active el interruptor, reinicie la PC y confirme que se abre solo. Debe figurar en *Configuración > Aplicaciones > Inicio*.
 8. **Configuración heredada.** Con el teclado de Python 1.x ya usado, abra este: debería respetar posición y color.
 9. **Segunda copia.** Ábralo dos veces: la segunda no debe quedar abierta.
+10. **Alt+Tab.** Con el PDF y el resumen abiertos, haga clic en varias teclas y use Alt+Tab: debe alternar solo entre el PDF y el resumen, sin pasar por el teclado.
+11. **Borde superior y bordes.** Arrástrelo hasta el borde de arriba: debe quedar pegado, sin franja. Intente dejarlo con una parte afuera: al soltarlo debe volver adentro.
+12. **Nitidez.** Compare las letras con el teclado de Python al 100 % de zoom de Windows (y con su escala real). Si le parece menos nítido, dígamelo con una captura de ambos.
+13. **Animaciones.** Toque teclas muy rápido, cambie de pestaña y cambie de color varias veces seguidas, incluso tocando teclas durante el barrido: nada debe trabarse ni quedar a medias.
 
 Si algo falla, envíeme: qué pasó, el archivo `diagnostico.log` (carpeta `%APPDATA%\TecladoCientifico`) y la versión de Windows.
 
@@ -64,6 +72,6 @@ Pruebas: `node --test ui/pruebas/*.test.js` y `cargo test` (dentro de `src-tauri
 ## Falta para poder reemplazar al teclado de Python
 
 - Actualización automática (Tauri usa claves de firma minisign, como Anotomía) y flujo de publicación `teclado-v2.x`.
-- Decidir qué pasa con quienes ya tienen la 1.x: el .exe nuevo podría publicarse con el mismo nombre de archivo, pero hay que probar esa ruta antes.
+- Decidir qué pasa con quienes ya tienen la 1.x. **El actualizador de Python (1.5 a 1.8) ya puede traer al 2.0 sin tocar nada de esa versión**: busca en los releases de `Juliancaba20/hipocampus` etiquetas `teclado-v…` (o `teclado-cientifico-v…`) con una versión mayor y descarga el archivo llamado exactamente `TecladoCientifico-Windows.exe` en Windows; solo comprueba que empiece con «MZ», el tamaño y el SHA-256 que informa GitHub, y reemplaza su propio .exe. Por eso basta publicar el 2.0 con esa etiqueta y ese nombre de archivo. Ya está preparado de este lado: el 2.0 reconoce el inicio automático que dejó la 1.x (mismo nombre de entrada), borra el `.old` que deja la actualización y reintenta el atajo si la copia anterior tarda en soltarlo. Cuidado con macOS y Linux: no publique archivos con los nombres que esperan sus actualizadores (`TecladoCientifico-Linux.tar.gz`, el .zip de Mac) hasta que esas versiones estén listas, para que esas copias se queden en la 1.8 en vez de actualizarse a algo que no existe.
 - macOS (permiso de Accesibilidad, `.app` firmado) y Linux (Wayland no admite atajo global).
 - Instalador o versión portátil: decidir (hoy es un solo .exe, como el de Python).

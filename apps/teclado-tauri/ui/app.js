@@ -3,7 +3,11 @@
   'use strict';
 
   const VERSION = '2.0.0';
-  const MARGEN = 16; // igual que --margen en estilos.css
+  // Espacio transparente alrededor del teclado (sombra). Se lee de estilos.css para tener un solo valor.
+  const px = (nombre) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(nombre)) || 0;
+  let M = { izq: 14, der: 14, sup: 0, inf: 24 };
+  const reducirMovimiento = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const puedeAnimar = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function' && !reducirMovimiento;
   const T = window.__TAURI__ || null;
   const invocar = T ? T.core.invoke : () => Promise.reject(new Error('Fuera de Tauri'));
   const ventana = T ? T.window.getCurrentWindow() : null;
@@ -24,7 +28,8 @@
   };
 
   let estado = L.normalizarConfig({}, D);
-  let info = { plataforma: 'windows', inicio: false };
+  let info = { plataforma: 'windows', inicio: false, bandeja: false };
+  let temaVisible = null;  // tema que se está mostrando (puede ir detrás de estado.tema mientras corre un barrido)
   let enConfig = false;
   let escala = 1;
   const teclas = [];       // botones de la cuadrícula (se reutilizan; nunca se vuelven a crear)
@@ -67,10 +72,54 @@
   }
 
   // ---------- aspecto ----------
-  function aplicarTema() {
-    const t = D.temas[estado.tema];
-    for (const [clave, valor] of Object.entries(t)) raiz.style.setProperty('--' + clave.replace('_', '-'), valor);
+  function poner(nodo, tema) {
+    for (const [clave, valor] of Object.entries(D.temas[tema])) nodo.style.setProperty('--' + clave.replace('_', '-'), valor);
   }
+  function aplicarTema() {
+    poner(raiz, estado.tema);
+    temaVisible = estado.tema;
+  }
+
+  // Cambio de color con un barrido de izquierda a derecha. El teclado nuevo ya está debajo, con
+  // todo en uso; encima corre una copia con los colores anteriores que se va descubriendo. La
+  // copia no recibe clics y no cambia nada: si se toca una tecla en medio del barrido, se escribe
+  // y se anima igual. Si se elige otro color mientras corre, este termina y luego se hace el último.
+  function barrerA(tema) {
+    if (tema === temaVisible) return Promise.resolve();
+    const anterior = temaVisible;
+    if (!puedeAnimar || el.ventana.classList.contains('oculta')) {
+      poner(raiz, tema); temaVisible = tema;
+      return Promise.resolve();
+    }
+    const caja = el.ventana.getBoundingClientRect();
+    const capa = document.createElement('div');
+    capa.id = 'barrido';
+    capa.setAttribute('aria-hidden', 'true');
+    capa.style.width = caja.width + 'px';
+    capa.style.height = caja.height + 'px';
+    const copia = el.ventana.cloneNode(true);   // conserva los id: así hereda todos los estilos
+    copia.classList.add('ventana-anterior');
+    copia.style.width = caja.width + 'px';
+    poner(copia, anterior);                     // colores viejos, fijos en esta copia
+    const linea = document.createElement('div');
+    linea.className = 'linea';
+    capa.append(copia, linea);
+    document.body.append(capa);                 // misma tarea que el cambio de abajo: no hay un cuadro intermedio
+    poner(raiz, tema);
+    temaVisible = tema;
+
+    const opciones = { duration: 380, easing: 'cubic-bezier(.5, .05, .25, 1)', fill: 'forwards' };
+    try {
+      const a = copia.animate([{ clipPath: 'inset(0 0 0 0)' }, { clipPath: `inset(0 0 0 ${caja.width}px)` }], opciones);
+      linea.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${caja.width + 32}px)` }], opciones);
+      return a.finished.catch(() => {}).then(() => capa.remove());
+    } catch (e) {
+      informar('barrido: ' + e.message);
+      capa.remove();
+      return Promise.resolve();
+    }
+  }
+  const pedirTema = L.crearCola(barrerA);
   function aplicarTamano() {
     const m = D.tamanos[estado.tamano];
     raiz.style.setProperty('--ancho', m.ancho + 'px');
@@ -80,6 +129,42 @@
   function aplicarAlpha() { raiz.style.setProperty('--alpha', String(estado.alpha)); }
 
   // ---------- teclas ----------
+  // ---------- animaciones (todas en transform/opacidad: no tocan los colores del tema) ----------
+  const SUAVE = 'cubic-bezier(.2, .8, .3, 1)';
+  function pulso(boton) {
+    if (!puedeAnimar) return;
+    boton.animate([{ transform: 'scale(1)' }, { transform: 'scale(.88)', offset: 0.3 }, { transform: 'scale(1)' }],
+                  { duration: 260, easing: SUAVE });
+    try {
+      boton.animate([{ opacity: 0.6 }, { opacity: 0 }], { duration: 340, easing: 'ease-out', pseudoElement: '::after' });
+    } catch (_) { /* sin destello en motores que no lo admiten */ }
+  }
+  function entradaDePagina() {
+    if (!puedeAnimar) return;
+    const columnas = D.columnas;
+    teclas.forEach((b, i) => {
+      if (b.hidden) return;
+      b.animate([{ opacity: 0, transform: 'translateY(7px) scale(.9)' }, { opacity: 1, transform: 'none' }],
+                { duration: 220, delay: (i % columnas) * 14, easing: SUAVE, fill: 'backwards' });
+    });
+  }
+  // Los recientes que cambian de lugar se deslizan; el nuevo aparece con un pequeño rebote.
+  function animarRecientes(antes) {
+    if (!puedeAnimar) return;
+    const paso = slots.length > 1 ? slots[1].offsetLeft - slots[0].offsetLeft : 0;
+    slots.forEach((b, i) => {
+      const s = estado.recientes[i];
+      if (!s || antes[i] === s) return;
+      const desde = antes.indexOf(s);
+      if (desde === -1) {
+        b.animate([{ transform: 'scale(.4)', opacity: 0 }, { transform: 'scale(1.12)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }],
+                  { duration: 300, easing: SUAVE });
+      } else {
+        b.animate([{ transform: `translateX(${(desde - i) * paso}px)` }, { transform: 'none' }], { duration: 240, easing: SUAVE });
+      }
+    });
+  }
+
   function pintarTecla(boton, simbolo) {
     boton.dataset.simbolo = simbolo || '';
     boton.classList.remove('vacia');
@@ -139,7 +224,10 @@
   function construirPestanas() {
     for (const pagina of Object.keys(D.paginas)) {
       const b = crear('button', { type: 'button', role: 'tab', tabindex: '-1', 'data-pagina': pagina }, pagina);
-      b.addEventListener('click', () => { estado.pagina = pagina; pintarPagina(); guardar(); });
+      b.addEventListener('click', () => {
+        if (estado.pagina === pagina) return;
+        estado.pagina = pagina; pintarPagina(); entradaDePagina(); guardar();
+      });
       b.addEventListener('pointerenter', () => mostrarNombre(''));
       el.pestanas.append(b);
     }
@@ -148,8 +236,10 @@
   // ---------- escribir ----------
   async function escribirSimbolo(simbolo) {
     if (!simbolo) return;
+    const antes = estado.recientes;
     estado.recientes = L.agregarReciente(estado.recientes, simbolo, D);
     pintarRecientes();
+    animarRecientes(antes);
     guardar();
     try {
       await invocar('escribir', { texto: simbolo });
@@ -164,6 +254,10 @@
   }
 
   function engancharTeclas(contenedor) {
+    contenedor.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('.tecla');
+      if (b && b.dataset.simbolo) pulso(b);
+    });
     contenedor.addEventListener('click', (e) => {
       const b = e.target.closest('.tecla');
       if (b && b.dataset.simbolo) escribirSimbolo(b.dataset.simbolo);
@@ -197,7 +291,7 @@
     for (const nombre of Object.keys(D.temas)) {
       const b = crear('button', { type: 'button', class: 'muestra', tabindex: '-1', 'aria-label': nombre, title: nombre });
       b.style.background = D.temas[nombre].acento;
-      b.addEventListener('click', () => { estado.tema = nombre; aplicarTema(); sincronizarConfig(); guardar(); });
+      b.addEventListener('click', () => { estado.tema = nombre; sincronizarConfig(); guardar(); pedirTema(nombre); });
       refs.muestras[nombre] = b;
     }
     fila('Color', Object.values(refs.muestras));
@@ -260,7 +354,9 @@
     const valores = L.normalizarConfig({}, D);
     Object.assign(estado, { tema: valores.tema, tamano: valores.tamano, alpha: valores.alpha, nombres: valores.nombres });
     if (estado.arriba !== valores.arriba) alternarArriba();
-    aplicarTema(); aplicarTamano(); aplicarAlpha(); sincronizarConfig(); guardar();
+    sincronizarConfig(); guardar();
+    aplicarTamano(); aplicarAlpha();
+    pedirTema(valores.tema);
   }
 
   function alternarConfig(abrir) {
@@ -283,42 +379,65 @@
   function ajustarVentana() {
     if (!ventana) return;
     const r = el.ventana.getBoundingClientRect();
-    const ancho = Math.ceil(r.width + 2 * MARGEN), alto = Math.ceil(r.height + 2 * MARGEN);
+    const ancho = Math.ceil(r.width + M.izq + M.der), alto = Math.ceil(r.height + M.sup + M.inf);
     const clave = ancho + 'x' + alto;
     if (clave === ultimoTamano) return;
     ultimoTamano = clave;
     ventana.setSize(new T.window.LogicalSize(ancho, alto)).catch(() => {});
   }
 
-  async function colocarVentana() {
-    escala = await ventana.scaleFactor();
-    const margenFisico = Math.round(MARGEN * escala);
-    const monitores = (await T.window.availableMonitors()).map((m) => ({
-      x: m.position.x, y: m.position.y, ancho: m.size.width, alto: m.size.height }));
-    if (estado.x !== null && estado.y !== null && L.dentroDePantallas(estado.x, estado.y, monitores)) {
-      await ventana.setPosition(new T.window.PhysicalPosition(estado.x - margenFisico, estado.y - margenFisico));
-    } else if (monitores.length) {
-      const m = monitores[0], r = el.ventana.getBoundingClientRect();
-      estado.x = Math.round(m.x + m.ancho - r.width * escala - 48 * escala);
-      estado.y = Math.round(m.y + 80 * escala);
-      await ventana.setPosition(new T.window.PhysicalPosition(estado.x - margenFisico, estado.y - margenFisico));
-    }
+  // Pantallas disponibles (zona de trabajo: sin la barra de tareas), en píxeles físicos.
+  async function pantallas() {
+    return (await T.window.availableMonitors()).map((m) => {
+      const z = m.workArea || { position: m.position, size: m.size };
+      return { x: z.position.x, y: z.position.y, ancho: z.size.width, alto: z.size.height };
+    });
+  }
+  // Rectángulo visible del teclado (sin el margen de la sombra), en píxeles físicos.
+  function cajaVisible(x, y) {
+    const r = el.ventana.getBoundingClientRect();
+    return { x, y, ancho: Math.round(r.width * escala), alto: Math.round(r.height * escala) };
+  }
+  async function moverA(x, y) {
+    await ventana.setPosition(new T.window.PhysicalPosition(Math.round(x - M.izq * escala), Math.round(y - M.sup * escala)));
   }
 
+  async function colocarVentana() {
+    escala = await ventana.scaleFactor();
+    const lista = await pantallas();
+    if (estado.x !== null && estado.y !== null) {
+      // Si quedó parcialmente fuera (otra pantalla, otra resolución), se corrige al entrar.
+      const c = L.ajustarADentro(cajaVisible(estado.x, estado.y), lista);
+      estado.x = c.x; estado.y = c.y;
+    } else if (lista.length) {
+      const caja = cajaVisible(0, 0);
+      const c = L.ajustarADentro({ ...caja, x: lista[0].x + lista[0].ancho - caja.ancho - 48 * escala, y: lista[0].y + 80 * escala }, lista);
+      estado.x = Math.round(c.x); estado.y = Math.round(c.y);
+    }
+    if (estado.x !== null) await moverA(estado.x, estado.y);
+  }
+
+  // Al soltar el teclado se lo acomoda dentro de la pantalla: puede quedar pegado a cualquier
+  // borde (incluido el superior) pero no con una parte afuera.
   let temporizadorMovimiento = null;
   function vigilarMovimiento() {
     ventana.onMoved(({ payload }) => {
       clearTimeout(temporizadorMovimiento);
-      temporizadorMovimiento = setTimeout(() => {
-        const m = Math.round(MARGEN * escala);
-        estado.x = payload.x + m; estado.y = payload.y + m;
+      temporizadorMovimiento = setTimeout(async () => {
+        let x = payload.x + Math.round(M.izq * escala), y = payload.y + Math.round(M.sup * escala);
+        try {
+          const c = L.ajustarADentro(cajaVisible(x, y), await pantallas());
+          if (c.x !== x || c.y !== y) { x = c.x; y = c.y; await moverA(x, y); }
+        } catch (_) { /* si no se puede consultar, se deja donde está */ }
+        estado.x = x; estado.y = y;
         guardar();
-      }, 400);
+      }, 250);
     });
   }
 
   // ---------- arranque ----------
   async function iniciar() {
+    M = { izq: px('--m-izq'), der: px('--m-der'), sup: px('--m-sup'), inf: px('--m-inf') };
     construirPestanas();
     construirTeclas();
     construirConfig();
@@ -331,7 +450,11 @@
 
     $('b-config').addEventListener('click', () => alternarConfig());
     $('b-cerrar').addEventListener('click', () => { if (enConfig) alternarConfig(false); else if (ventana) ventana.close(); });
-    $('b-minimizar').addEventListener('click', () => ventana && ventana.minimize());
+    $('b-minimizar').addEventListener('click', () => {
+      // Con ícono en la bandeja se oculta (se vuelve con un clic en el ícono o con el atajo);
+      // si no hay bandeja, se minimiza.
+      if (info.bandeja) invocar('ocultar').catch(() => {}); else if (ventana) ventana.minimize();
+    });
     el.compacto.addEventListener('click', alternarCompacto);
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && enConfig) alternarConfig(false); });
 
@@ -339,12 +462,16 @@
       try {
         const inicial = await invocar('estado_inicial');
         estado = L.normalizarConfig(inicial.config, D);
-        info = { plataforma: inicial.plataforma, inicio: inicial.inicio_automatico };
+        info = { plataforma: inicial.plataforma, inicio: inicial.inicio_automatico, bandeja: inicial.bandeja };
+        const minimizar = $('b-minimizar');
+        const texto = info.bandeja ? 'Ocultar (ícono junto al reloj o ' + L.textoAtajo(estado.atajo) + ')' : 'Minimizar';
+        minimizar.title = texto; minimizar.setAttribute('aria-label', texto);
         if (inicial.atajo_error) avisarAtajo(inicial.atajo_error);
       } catch (e) { /* se usan los valores predeterminados */ }
       T.event.listen('atajo-error', (e) => avisarAtajo(e.payload));
     }
 
+    informar('animaciones: ' + (puedeAnimar ? 'sí' : 'no') + (reducirMovimiento ? ' (el sistema pide reducir movimiento)' : ''));
     aplicarTema(); aplicarTamano(); aplicarAlpha();
     document.body.classList.toggle('compacto', estado.compacto);
     el.iconoCompacto.setAttribute('d', estado.compacto ? 'M4 6l4 4 4-4' : 'M4 10l4-4 4 4');

@@ -71,8 +71,42 @@
     return pantallas.some((p) => x >= p.x && y >= p.y && x < p.x + p.ancho && y < p.y + p.alto);
   }
 
+  // Mantiene el teclado (x, y, ancho, alto, en píxeles de pantalla) dentro de la pantalla en la
+  // que está su centro; si el centro quedó fuera de todas, usa la más cercana. Puede quedar
+  // pegado a cualquier borde, pero nunca con una parte fuera. Devuelve {x, y}.
+  function ajustarADentro(caja, pantallas) {
+    if (!pantallas.length) return { x: caja.x, y: caja.y };
+    const cx = caja.x + caja.ancho / 2, cy = caja.y + caja.alto / 2;
+    let elegida = pantallas.find((p) => cx >= p.x && cy >= p.y && cx < p.x + p.ancho && cy < p.y + p.alto);
+    if (!elegida) {
+      const distancia = (p) => {
+        const dx = Math.max(p.x - cx, 0, cx - (p.x + p.ancho)), dy = Math.max(p.y - cy, 0, cy - (p.y + p.alto));
+        return dx * dx + dy * dy;
+      };
+      elegida = pantallas.reduce((a, b) => (distancia(b) < distancia(a) ? b : a));
+    }
+    const limite = (valor, minimo, tamano, espacio) =>
+      espacio >= tamano ? Math.min(Math.max(valor, minimo), minimo + espacio - tamano) : minimo;
+    return { x: limite(caja.x, elegida.x, caja.ancho, elegida.ancho),
+             y: limite(caja.y, elegida.y, caja.alto, elegida.alto) };
+  }
+
+  // Cola para animaciones que no deben pisarse: ejecuta de a una; si llegan pedidos mientras
+  // una está en curso, la que está en curso TERMINA y después se hace solo el último pedido.
+  // Devuelve una promesa que se cumple cuando ya no queda nada pendiente.
+  function crearCola(ejecutar) {
+    let activa = false, hay = false, ultimo;
+    async function pedir(valor) {
+      if (activa) { ultimo = valor; hay = true; return; }
+      activa = true;
+      try { await ejecutar(valor); } catch (_) { /* un fallo no bloquea los siguientes */ } finally { activa = false; }
+      if (hay) { const siguiente = ultimo; hay = false; ultimo = undefined; await pedir(siguiente); }
+    }
+    return pedir;
+  }
+
   const api = { limitarAlpha, normalizarRecientes, agregarReciente, textoAtajo, conPunto,
-                normalizarConfig, dentroDePantallas, simbolosValidos };
+                normalizarConfig, dentroDePantallas, ajustarADentro, crearCola, simbolosValidos };
   if (typeof module !== 'undefined') module.exports = api;
   else raiz.Logica = api;
 })(typeof window !== 'undefined' ? window : globalThis);

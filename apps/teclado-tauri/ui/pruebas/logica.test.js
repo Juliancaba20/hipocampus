@@ -102,3 +102,56 @@ test('posición guardada: se detecta si quedó fuera de las pantallas', () => {
   assert.ok(!L.dentroDePantallas(5000, 100, pantallas));
   assert.ok(!L.dentroDePantallas(0, 0, []));
 });
+
+test('ajustar a la pantalla: pegado a cualquier borde sí, con una parte afuera no', () => {
+  const pantalla = [{ x: 0, y: 0, ancho: 1920, alto: 1040 }];
+  const caja = (x, y) => ({ x, y, ancho: 400, alto: 200 });
+  assert.deepEqual(L.ajustarADentro(caja(0, 0), pantalla), { x: 0, y: 0 });                 // esquina: queda
+  assert.deepEqual(L.ajustarADentro(caja(-50, -30), pantalla), { x: 0, y: 0 });              // se pasó arriba y a la izquierda
+  assert.deepEqual(L.ajustarADentro(caja(1700, 900), pantalla), { x: 1520, y: 840 });        // se pasó abajo y a la derecha
+  assert.deepEqual(L.ajustarADentro(caja(500, 300), pantalla), { x: 500, y: 300 });          // adentro: no se toca
+  assert.deepEqual(L.ajustarADentro(caja(1520, 840), pantalla), { x: 1520, y: 840 });        // justo al borde: queda
+});
+
+test('ajustar a la pantalla: con dos pantallas usa la del centro del teclado', () => {
+  const pantallas = [{ x: 0, y: 0, ancho: 1920, alto: 1080 }, { x: 1920, y: 0, ancho: 1280, alto: 1024 }];
+  // casi todo en la segunda pantalla, con una parte pasada al borde derecho
+  assert.deepEqual(L.ajustarADentro({ x: 2900, y: 100, ancho: 400, alto: 200 }, pantallas), { x: 2800, y: 100 });
+  // entre las dos pantallas: el centro (x=1920+10) cae en la segunda
+  assert.deepEqual(L.ajustarADentro({ x: 1730, y: 50, ancho: 400, alto: 200 }, pantallas), { x: 1920, y: 50 });
+  // centro fuera de todas (monitor desconectado): va a la más cercana
+  assert.deepEqual(L.ajustarADentro({ x: 6000, y: 50, ancho: 400, alto: 200 }, pantallas), { x: 2800, y: 50 });
+  assert.deepEqual(L.ajustarADentro({ x: 5, y: 5, ancho: 10, alto: 10 }, []), { x: 5, y: 5 });
+});
+
+test('ajustar a la pantalla: si es más grande que la pantalla, se pega a la esquina', () => {
+  assert.deepEqual(L.ajustarADentro({ x: 30, y: 30, ancho: 500, alto: 500 }, [{ x: 0, y: 0, ancho: 300, alto: 300 }]), { x: 0, y: 0 });
+});
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('cola de animaciones: una a la vez, la que está en curso termina y solo queda la última', async () => {
+  const registro = [];
+  let enCurso = 0, maximo = 0;
+  const pedir = L.crearCola(async (valor) => {
+    registro.push('inicio ' + valor);
+    maximo = Math.max(maximo, ++enCurso);
+    await esperar(20);
+    enCurso--;
+    registro.push('fin ' + valor);
+  });
+  const todo = pedir('A');
+  pedir('B'); pedir('C'); pedir('D');   // B y C se descartan; D es el último pedido
+  await todo;
+  assert.deepEqual(registro, ['inicio A', 'fin A', 'inicio D', 'fin D']);
+  assert.equal(maximo, 1);
+});
+
+test('cola de animaciones: un fallo no bloquea y se puede volver a usar', async () => {
+  const hechos = [];
+  const pedir = L.crearCola(async (v) => { if (v === 'malo') throw new Error('x'); hechos.push(v); });
+  await pedir('malo');
+  await pedir('bueno');
+  pedir('uno'); await pedir('dos');
+  assert.deepEqual(hechos, ['bueno', 'uno', 'dos']);
+});

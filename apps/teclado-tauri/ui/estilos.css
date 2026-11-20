@@ -1,12 +1,15 @@
 /* Teclado Científico: los colores de cada tema los pone app.js como variables (--fondo, --barra...). */
 :root {
-  --margen: 16px;          /* espacio transparente alrededor para la sombra (app.js usa el mismo) */
+  /* Espacio transparente alrededor del teclado, para la sombra. Arriba es 0: así puede quedar
+     pegado al borde superior de la pantalla (app.js lee estos valores). */
+  --m-izq: 14px; --m-der: 14px; --m-sup: 0px; --m-inf: 24px;
   --gap: 3px;
   --radio: 14px;
   --alpha: 0.96;
   --ancho: 35px; --alto: 28px; --letra: 12px;
   --suave: 160ms cubic-bezier(.2, .7, .3, 1);
-  --fuente: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  /* «Segoe UI» (no la «Variable»): es la misma tipografía y el mismo dibujo que usa el teclado 1.x */
+  --fuente: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
   /* valores de respaldo (Medianoche) por si el script tarda */
   --fondo: #1e1e2e; --barra: #11111b; --boton: #313244; --hover: #45475a; --texto: #cdd6f4;
   --acento: #89b4fa; --cerrar: #f38ba8; --aviso-fondo: #45475a; --aviso-texto: #f9e2af;
@@ -15,26 +18,35 @@
 
 * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-body { font-family: var(--fuente); color: var(--texto); -webkit-font-smoothing: antialiased; cursor: default; }
+body { font-family: var(--fuente); color: var(--texto); font-synthesis: none; cursor: default; }
 button { font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; }
 button:focus { outline: none; }
 button:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
 
+/* La transparencia se aplica solo a los fondos (--*-a): las letras y los símbolos quedan siempre
+   opacos y nítidos. Se definen aquí y no en :root para que cada copia de la ventana los calcule
+   con sus propios colores (lo usa el barrido de color). */
 #ventana {
-  position: absolute; left: var(--margen); top: var(--margen);
+  --fa: calc(var(--alpha) * 100%);
+  --fondo-a: color-mix(in srgb, var(--fondo) var(--fa), transparent);
+  --barra-a: color-mix(in srgb, var(--barra) var(--fa), transparent);
+  --boton-a: color-mix(in srgb, var(--boton) var(--fa), transparent);
+  --hover-a: color-mix(in srgb, var(--hover) var(--fa), transparent);
+  --reciente-a: color-mix(in srgb, var(--reciente) var(--fa), transparent);
+  position: absolute; left: var(--m-izq); top: var(--m-sup);
   /* ancho fijo (9 teclas + márgenes + borde): no cambia entre teclas, recientes y configuración */
   width: calc(9 * var(--ancho) + 8 * var(--gap) + 14px);
-  background: var(--fondo); border: 1px solid var(--hover); border-radius: var(--radio);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .38), 0 1px 3px rgba(0, 0, 0, .3);
-  opacity: var(--alpha); overflow: hidden;
-  transition: background var(--suave), border-color var(--suave);
+  background: var(--fondo-a); border: 1px solid color-mix(in srgb, var(--hover) var(--fa), transparent);
+  border-radius: var(--radio); overflow: hidden;
+  /* sombra hacia abajo y a los costados; casi nada hacia arriba (el margen de arriba es 0) */
+  box-shadow: 0 10px 18px -6px rgba(0, 0, 0, .45), 0 2px 3px rgba(0, 0, 0, .25);
 }
 #ventana.oculta { visibility: hidden; }
 
 /* ---- barra ---- */
 #barra {
   display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 8px;
-  background: var(--barra); transition: background var(--suave);
+  background: var(--barra-a);
 }
 #pestanas { position: relative; display: flex; gap: 2px; }
 #pestanas button {
@@ -69,14 +81,16 @@ button:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
 
 .tecla {
   position: relative; width: var(--ancho); height: var(--alto); border-radius: 7px; font-size: var(--letra);
-  background: var(--boton); color: var(--texto); display: grid; place-items: center; line-height: 1;
-  transition: background 110ms, transform 90ms, color var(--suave);
+  background: var(--boton-a); color: var(--texto); display: grid; place-items: center; line-height: 1;
+  transition: background 110ms;
 }
-.tecla:hover { background: var(--hover); }
-.tecla:active { transform: scale(.93); background: var(--acento); color: var(--barra); }
+.tecla:hover { background: var(--hover-a); }
 .tecla[hidden] { display: none; }
-.reciente { background: var(--reciente); }
-.reciente:hover { background: var(--hover); }
+/* destello de color al tocar (lo anima app.js; no usa el fondo, para no cruzarse con otras animaciones) */
+.tecla::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--acento);
+  opacity: 0; pointer-events: none; }
+.reciente { background: var(--reciente-a); }
+.reciente:hover { background: var(--hover-a); }
 .reciente.vacia { background: transparent; border: 1px dashed color-mix(in srgb, var(--hover) 80%, transparent); pointer-events: none; }
 body.compacto #cuadricula { display: none; }
 body.compacto #recientes { margin-bottom: 0; padding-bottom: 3px; border-bottom: 0; }
@@ -115,6 +129,13 @@ body.en-config #titulo-config { display: block; }
 .interruptor[aria-checked="true"] { background: var(--acento); }
 .interruptor[aria-checked="true"]::after { transform: translateX(14px); background: var(--barra); }
 .pie { padding: 4px 14px 0; font-size: 10.5px; color: var(--asa); }
+
+/* ---- barrido de color (cambio de tema de izquierda a derecha) ---- */
+#barrido { position: absolute; left: var(--m-izq); top: var(--m-sup); border-radius: var(--radio); overflow: hidden;
+  pointer-events: none; z-index: 50; }
+#barrido > .ventana-anterior { position: absolute; left: 0; top: 0; margin: 0; }
+#barrido .linea { position: absolute; top: 0; bottom: 0; left: -32px; width: 32px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acento) 28%, transparent) 75%, color-mix(in srgb, var(--acento) 45%, transparent)); }
 
 /* ---- aviso ---- */
 #aviso { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 7px 10px; border-radius: 8px;
