@@ -31,6 +31,17 @@ Notas:
 - Para que una versión sea detectada, la etiqueta del release debe ser `teclado-vX.Y` (como indica «Publicar una versión nueva») y no estar marcada como *pre-release*.
 - Pruebas: desde esta carpeta, `python -m unittest pruebas.probar_actualizacion -v` (en Linux sin pantalla, anteponga `xvfb-run -a`).
 
+## Novedades de la versión 1.8
+
+- **Sin parpadeos al cambiar la configuración:** el color, el tamaño de las teclas, la transparencia y los interruptores se actualizan sobre lo que ya está en pantalla, en lugar de volver a crear el panel y las teclas. El panel de configuración se arma una sola vez y el número de transparencia tiene ancho fijo, para que «−» y «+» no se muevan al hacer clic seguido. Al cambiar el tamaño de las teclas ya no se dibuja cada pestaña para medirla: la medida se calcula.
+- **Sin parpadeo al abrir:** la ventana se arma oculta y se muestra recién cuando está terminada y en su lugar (antes se veía aparecer en otra posición y completarse).
+- **Abrir al iniciar el sistema:** nuevo interruptor en ⚙ (apagado de fábrica). Funciona con el programa descargado, no con el script. Usa el mecanismo propio de cada sistema: en Windows aparece en *Configuración > Aplicaciones > Inicio* y en el Administrador de tareas (si se lo desactiva allí, el programa lo respeta); en Mac es un agente de usuario en `~/Library/LaunchAgents`; en Linux es un archivo en `~/.config/autostart`. Si el programa cambia de carpeta, corrige solo la ruta registrada. Al iniciar el sistema se abre con el argumento `--inicio`: si ya hay otra copia abierta, sale sin mostrar ningún aviso.
+- **Animaciones suaves, sin bloquear el uso:** al tocar una tecla hace un destello de color; al cambiar de pestaña las teclas entran en cascada de izquierda a derecha; y al cambiar de color hay un barrido de izquierda a derecha (unos 0,3 s). Todo se hace con temporizadores, no con bucles: se puede seguir tocando teclas, pasando el mouse y cambiando de pestaña mientras corre, y nada de eso lo interrumpe. Si se elige otro color a mitad de un barrido, el que está en curso termina y después se hace el último elegido. Al terminar, todo se repinta con el color definitivo. Se respeta el ajuste «mostrar animaciones» de Windows (si está desactivado, los cambios son inmediatos).
+- Cambiar de pestaña ya no destruye y vuelve a crear las teclas: se reutilizan (otra fuente de parpadeo menos).
+- En Windows, la transparencia al 100 % se entrega como 99,9 % (se ve igual) para que Windows no cambie el modo de la ventana al pasar por 100 %.
+- Pruebas nuevas: `python -m unittest pruebas.probar_sin_parpadeo pruebas.probar_inicio_automatico pruebas.probar_animaciones -v` (en Linux sin pantalla, anteponga `xvfb-run -a`). Las de parpadeo comprueban que ningún cambio de configuración destruya o cree widgets.
+- Pendiente de comprobar en una PC con Windows y en Mac: que el parpadeo haya desaparecido a simple vista y que el inicio automático funcione tras reiniciar.
+
 ## Novedades de la versión 1.6
 
 - Nueva pestaña **∫** (fisiología y matemática): V̇, v̇ y Q̇ (letra con punto encima, para flujos), integral, derivada parcial, lógica, ⊕ ⊖, ♂ ♀ y tilde/cruz.
@@ -45,7 +56,7 @@ Notas:
 
 - **Escribir:** haga clic en un símbolo y se escribe donde esté el cursor. Al pasar el mouse por encima, la barra superior muestra su nombre.
 - **Recientes:** la fila de arriba repite los últimos 9 símbolos usados.
-- **Configuración:** el botón `⚙` abre el panel; elegir una pestaña lo cierra.
+- **Configuración:** el botón `⚙` abre el panel; elegir una pestaña lo cierra. Desde la 1.8 incluye «Abrir al iniciar el sistema».
 - **Modo compacto:** el botón `▴` deja solo la barra y la fila de recientes; `▾` lo expande (elegir una pestaña también lo expande).
 - **Ocultar y mostrar:** con el atajo **Ctrl+Alt+G** (solo Windows y Linux con X11). Si el teclado no aparece, pruebe el atajo: puede estar oculto.
 - **Si no puede escribir** (por ejemplo, en un programa que se ejecuta como administrador), el teclado lo avisa y copia el símbolo para pegarlo con Ctrl+V.

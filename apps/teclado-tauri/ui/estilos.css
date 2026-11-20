@@ -1,0 +1,150 @@
+/* Teclado Científico: los colores de cada tema los pone app.js como variables (--fondo, --barra...). */
+:root {
+  /* Espacio transparente alrededor del teclado, para la sombra. Arriba es 0: así puede quedar
+     pegado al borde superior de la pantalla (app.js lee estos valores). */
+  --m-izq: 14px; --m-der: 14px; --m-sup: 0px; --m-inf: 24px;
+  --gap: 3px;
+  --radio: 14px;
+  --alpha: 0.96;
+  --ancho: 35px; --alto: 28px; --letra: 12px;
+  --suave: 160ms cubic-bezier(.2, .7, .3, 1);
+  /* «Segoe UI» (no la «Variable»): es la misma tipografía y el mismo dibujo que usa el teclado 1.x */
+  --fuente: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  /* valores de respaldo (Medianoche) por si el script tarda */
+  --fondo: #1e1e2e; --barra: #11111b; --boton: #313244; --hover: #45475a; --texto: #cdd6f4;
+  --acento: #89b4fa; --cerrar: #f38ba8; --aviso-fondo: #45475a; --aviso-texto: #f9e2af;
+  --reciente: #383852; --nombre: #a6adc8; --asa: #6c7086;
+}
+
+* { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font-family: var(--fuente); color: var(--texto); font-synthesis: none; cursor: default; }
+button { font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; }
+button:focus { outline: none; }
+button:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
+
+/* La transparencia se aplica solo a los fondos (--*-a): las letras y los símbolos quedan siempre
+   opacos y nítidos. Se definen aquí y no en :root para que cada copia de la ventana los calcule
+   con sus propios colores (lo usa el barrido de color). */
+#ventana {
+  --fa: calc(var(--alpha) * 100%);
+  --fondo-a: color-mix(in srgb, var(--fondo) var(--fa), transparent);
+  --barra-a: color-mix(in srgb, var(--barra) var(--fa), transparent);
+  --boton-a: color-mix(in srgb, var(--boton) var(--fa), transparent);
+  --hover-a: color-mix(in srgb, var(--hover) var(--fa), transparent);
+  --reciente-a: color-mix(in srgb, var(--reciente) var(--fa), transparent);
+  position: absolute; left: var(--m-izq); top: var(--m-sup);
+  /* ancho fijo (9 teclas + márgenes + borde): no cambia entre teclas, recientes y configuración */
+  width: calc(9 * var(--ancho) + 8 * var(--gap) + 14px);
+  background: var(--fondo-a); border: 1px solid color-mix(in srgb, var(--hover) var(--fa), transparent);
+  border-radius: var(--radio); overflow: hidden;
+  /* sombra hacia abajo y a los costados; casi nada hacia arriba (el margen de arriba es 0) */
+  box-shadow: 0 10px 18px -6px rgba(0, 0, 0, .45), 0 2px 3px rgba(0, 0, 0, .25);
+}
+#ventana.oculta { visibility: hidden; }
+
+/* ---- barra ---- */
+#barra {
+  display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 8px;
+  background: var(--barra-a);
+}
+#pestanas { position: relative; display: flex; gap: 2px; }
+#pestanas button {
+  min-width: 30px; height: 26px; padding: 0 7px; border-radius: 7px; font-size: 14px;
+  color: var(--asa); transition: color var(--suave), background var(--suave);
+}
+#pestanas button:hover { color: var(--texto); background: color-mix(in srgb, var(--hover) 55%, transparent); }
+#pestanas button[aria-selected="true"] { color: var(--acento); }
+#indicador {
+  position: absolute; left: 0; bottom: -2px; height: 2px; width: 0; border-radius: 2px;
+  background: var(--acento); transform: translateX(0);
+  transition: transform 220ms cubic-bezier(.3, .8, .3, 1), width 220ms cubic-bezier(.3, .8, .3, 1), background var(--suave);
+}
+#nombre, #titulo-config {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 11px; color: var(--nombre); text-align: center;
+}
+#titulo-config { display: none; text-align: left; font-size: 13px; color: var(--acento); padding-left: 4px; }
+#botones { display: flex; gap: 1px; }
+#botones button { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--asa);
+  transition: color var(--suave), background var(--suave); }
+#botones button:hover { color: var(--texto); background: color-mix(in srgb, var(--hover) 60%, transparent); }
+#botones button.cerrar:hover { color: var(--barra); background: var(--cerrar); }
+#botones svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- recientes y teclas ---- */
+#contenido { padding: 6px 6px 3px; }
+#recientes { display: grid; grid-template-columns: repeat(9, var(--ancho)); gap: var(--gap); margin-bottom: 6px;
+  padding-bottom: 6px; border-bottom: 1px solid color-mix(in srgb, var(--hover) 70%, transparent); }
+#cuadricula { display: grid; grid-template-columns: repeat(9, var(--ancho)); grid-auto-rows: var(--alto);
+  gap: var(--gap); padding-bottom: 3px; min-height: calc(3 * var(--alto) + 3 * var(--gap)); align-content: start; }
+
+.tecla {
+  position: relative; width: var(--ancho); height: var(--alto); border-radius: 7px; font-size: var(--letra);
+  background: var(--boton-a); color: var(--texto); display: grid; place-items: center; line-height: 1;
+  transition: background 110ms;
+}
+.tecla:hover { background: var(--hover-a); }
+.tecla[hidden] { display: none; }
+/* destello de color al tocar (lo anima app.js; no usa el fondo, para no cruzarse con otras animaciones) */
+.tecla::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--acento);
+  opacity: 0; pointer-events: none; }
+.reciente { background: var(--reciente-a); }
+.reciente:hover { background: var(--hover-a); }
+.reciente.vacia { background: transparent; border: 1px dashed color-mix(in srgb, var(--hover) 80%, transparent); pointer-events: none; }
+body.compacto #cuadricula { display: none; }
+body.compacto #recientes { margin-bottom: 0; padding-bottom: 3px; border-bottom: 0; }
+
+/* letra con punto encima (V̇, v̇, Q̇): se dibuja el punto para que quede centrado en cualquier fuente */
+.letra-punto { position: relative; display: inline-block; }
+.letra-punto::after { content: ""; position: absolute; left: 50%; top: -.16em; width: .17em; height: .17em;
+  margin-left: -.085em; border-radius: 50%; background: currentColor; }
+.letra-punto.minuscula::after { top: .1em; }
+
+/* ---- configuración ---- */
+#config { display: none; padding: 4px 0 6px; }
+body.en-config #config { display: block; animation: aparecer 180ms ease-out; }
+body.en-config #contenido, body.en-config #pestanas, body.en-config #nombre, body.en-config #b-compacto,
+body.en-config #b-minimizar, body.en-config #b-config { display: none; }
+body.en-config #titulo-config { display: block; }
+.fila { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; padding: 0 14px;
+  font-size: 13px; border-bottom: 1px solid color-mix(in srgb, var(--hover) 55%, transparent); }
+.fila:last-of-type { border-bottom: 0; }
+.fila .control { display: flex; align-items: center; gap: 4px; }
+.fila .secundario { color: var(--asa); }
+.opcion { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--asa);
+  transition: color var(--suave), background var(--suave); }
+.opcion:hover { color: var(--texto); background: color-mix(in srgb, var(--hover) 55%, transparent); }
+.opcion[aria-pressed="true"] { color: var(--acento); }
+.opcion.paso { font-size: 15px; width: 24px; padding: 0; color: var(--texto); }
+#valor-alpha { width: 46px; text-align: center; font-variant-numeric: tabular-nums; color: var(--asa); font-size: 12px; }
+.muestra { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--hover); margin-left: 4px;
+  transition: transform 120ms, border-color var(--suave); }
+.muestra:hover { transform: scale(1.12); }
+.muestra[aria-pressed="true"] { border-color: var(--texto); }
+.interruptor { position: relative; width: 30px; height: 16px; border-radius: 8px; background: var(--hover);
+  transition: background var(--suave); }
+.interruptor::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--texto); transition: transform var(--suave), background var(--suave); }
+.interruptor[aria-checked="true"] { background: var(--acento); }
+.interruptor[aria-checked="true"]::after { transform: translateX(14px); background: var(--barra); }
+.pie { padding: 4px 14px 0; font-size: 10.5px; color: var(--asa); }
+
+/* ---- barrido de color (cambio de tema de izquierda a derecha) ---- */
+#barrido { position: absolute; left: var(--m-izq); top: var(--m-sup); border-radius: var(--radio); overflow: hidden;
+  pointer-events: none; z-index: 50; }
+#barrido > .ventana-anterior { position: absolute; left: 0; top: 0; margin: 0; }
+#barrido .linea { position: absolute; top: 0; bottom: 0; left: -32px; width: 32px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--acento) 28%, transparent) 75%, color-mix(in srgb, var(--acento) 45%, transparent)); }
+
+/* ---- aviso ---- */
+#aviso { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 7px 10px; border-radius: 8px;
+  background: var(--aviso-fondo); color: var(--aviso-texto); font-size: 11.5px; line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .3); opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity var(--suave), transform var(--suave); }
+#aviso.visible { opacity: 1; transform: none; }
+
+@keyframes aparecer { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
