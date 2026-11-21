@@ -10,14 +10,15 @@ Teclado flotante para escribir letras griegas y símbolos con un clic. Funciona 
 
 ## Publicar una versión nueva
 
-1. Modifique `teclado_griego.py` y actualice la constante `VERSION` (por ejemplo `"1.5"`). Suba el cambio a GitHub.
-2. En GitHub: *Releases > Draft a new release*. En *Choose a tag* escriba `teclado-v1.5` (la etiqueta debe empezar con `teclado-v` y terminar con el número de versión), elija *Create new tag* y luego *Publish release*.
+1. Modifique `teclado_griego.py` y suba el cambio a GitHub. **No hace falta tocar `VERSION`**: desde la 1.8.2 la compilación toma el número de la etiqueta (paso 2) y lo escribe dentro del programa. (Conviene dejar también `VERSION` al día en el código, pero ya no depende de eso.)
+2. En GitHub: *Releases > Draft a new release*. En *Choose a tag* escriba `teclado-v1.5` (la etiqueta debe empezar con `teclado-v` y terminar con el número de versión; **siempre mayor que la última publicada**: nunca reutilice una etiqueta ni publique el mismo número dos veces), elija *Create new tag* y luego *Publish release*.
 3. Espere unos 5 minutos y revise la pestaña *Actions*: deben aparecer tres tareas en verde (Windows, macOS, Linux). Al terminar, los tres archivos quedan adjuntos al release: `TecladoCientifico-Windows.exe`, `TecladoCientifico-Mac.zip` y `TecladoCientifico-Linux.tar.gz`.
 4. La página `/teclado` enlaza siempre a la última versión publicada y toma el número de la etiqueta. No hay que editar nada en el sitio.
 
 Notas:
 - La compilación usa el código que existe **en el momento de crear la etiqueta**. Por eso conviene subir primero el cambio del programa (paso 1) y recién después publicar el release.
-- Si un release quedó mal (archivos con otro nombre o de una versión equivocada), bórrelo junto con su etiqueta (*Releases > Delete*, y luego *Tags* para borrar la etiqueta) y vuelva a crearlo.
+- Si un release quedó mal (archivos con otro nombre o de una versión equivocada), bórrelo junto con su etiqueta (*Releases > Delete*, y luego *Tags* para borrar la etiqueta) y vuelva a crearlo. Si ya lo descargó gente, es mejor publicar una versión **nueva** (por ejemplo `teclado-v1.8.3`) que repetir la anterior.
+- **La versión de cada descarga es la de su etiqueta.** El paso «Fijar la versión según la etiqueta» de la compilación la escribe en `VERSION` y, en Linux, comprueba que el ejecutable la informe (`--version`); si no coincide, la compilación falla y no se publica nada. Esto evita el error de las etiquetas `teclado-v1.7` y `teclado-v1.8.1`, publicadas con programas que por dentro decían 1.6 y 1.8: esos programas se actualizaban, pero seguían creyéndose de la versión anterior y avisaban de una «versión nueva» para siempre.
 - También puede ejecutar la compilación a mano desde *Actions > Compilar Teclado Científico > Run workflow*, eligiendo una etiqueta existente.
 
 ## Actualización automática (desde la versión 1.5)
@@ -30,6 +31,12 @@ Notas:
 - **Las versiones 1.4 y anteriores no tienen esta función:** se descarga la 1.5 una única vez a mano; de ahí en adelante se actualiza sola.
 - Para que una versión sea detectada, la etiqueta del release debe ser `teclado-vX.Y` (como indica «Publicar una versión nueva») y no estar marcada como *pre-release*.
 - Pruebas: desde esta carpeta, `python -m unittest pruebas.probar_actualizacion -v` (en Linux sin pantalla, anteponga `xvfb-run -a`).
+
+## Novedades de la versión 1.8.2
+
+- **Corrige el aviso permanente de actualización.** Las descargas `teclado-v1.7` y `teclado-v1.8.1` llevaban escrita por dentro una versión anterior a su etiqueta (1.6 y 1.8). Quien se actualizaba a ellas seguía viendo «hay una versión nueva», porque el programa comparaba su versión (la vieja) con la última publicada. La 1.8.1 tenía exactamente el mismo código que la 1.8. A partir de la 1.8.2 la versión de cada descarga se toma de su etiqueta, con comprobación automática al compilar (ver «Publicar una versión nueva»). Quien tenga la 1.8 o la 1.8.1 verá una sola vez más el aviso: al actualizar a la 1.8.2 desaparece.
+- No cambia nada más respecto de la 1.8.
+- Pruebas nuevas: `python -m unittest pruebas.probar_version -v`.
 
 ## Novedades de la versión 1.8
 
