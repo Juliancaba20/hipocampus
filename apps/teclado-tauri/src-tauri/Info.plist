@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Aplicación «de segundo plano»: sin ícono en el Dock ni en Cmd+Tab (el equivalente a no
+       aparecer en Alt+Tab en Windows). Se maneja desde el ícono de la barra de menús. -->
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>

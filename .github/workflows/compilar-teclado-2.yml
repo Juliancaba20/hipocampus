@@ -1,0 +1,286 @@
+name: Compilar Teclado Científico 2
+
+# Teclado Científico 2.x (Tauri). Se ejecuta:
+#   - al publicar una etiqueta teclado-v2.* (o 3, 4... 10, 11...): compila Windows, Mac y Linux y
+#     publica el release con los tres archivos (los mismos nombres que usa la web y los
+#     actualizadores de la 1.x: TecladoCientifico-Windows.exe, -Mac.zip y -Linux.tar.gz);
+#   - a mano (Actions > «Compilar Teclado Científico 2» > Run workflow): compila y deja los archivos
+#     como «artefactos» descargables al final de la ejecución, SIN publicar nada. Es la forma de probar.
+# Las etiquetas teclado-v1.* las compila el flujo «Compilar Teclado Científico» (versión de Python).
+on:
+  push:
+    tags:
+      - "teclado-v[2-9]*"
+      - "Teclado-v[2-9]*"
+      - "Teclado-científico-v[2-9]*"
+      - "Teclado-cientifico-v[2-9]*"
+      - "teclado-v[1-9][0-9]*"
+      - "Teclado-v[1-9][0-9]*"
+      - "Teclado-científico-v[1-9][0-9]*"
+      - "Teclado-cientifico-v[1-9][0-9]*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verificar:
+    name: Pruebas
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev libssl-dev libayatana-appindicator3-dev \
+            python3-tk xvfb dbus-x11
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: La etiqueta es de una versión del teclado
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 apps/teclado-tauri/tools/fijar_version.py --leer "$GITHUB_REF_NAME"
+      - name: Pruebas de la interfaz
+        run: node --test apps/teclado-tauri/ui/pruebas/*.test.js
+      - name: Pruebas de la versión
+        working-directory: apps/teclado-tauri
+        run: python3 -m unittest tools.probar_version
+      - name: Los símbolos coinciden con los del teclado de Python
+        working-directory: apps/teclado-tauri
+        run: |
+          python3 tools/generar_datos.py
+          git diff --exit-code -- ui/datos.js
+      - name: Pruebas de Rust
+        run: cargo test --manifest-path apps/teclado-tauri/src-tauri/Cargo.toml
+
+  decidir:
+    name: Motor de Mac
+    runs-on: ubuntu-22.04
+    outputs:
+      mac: ${{ steps.motor.outputs.mac }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: motor
+        run: |
+          # apps/teclado-tauri/MAC_MOTOR dice qué se publica como TecladoCientifico-Mac.zip:
+          # «tauri» (el teclado nuevo) o «python» (el de la 1.x, ya probado en Mac).
+          motor=$(tr -d ' \r\n' < apps/teclado-tauri/MAC_MOTOR 2>/dev/null || true)
+          case "$motor" in tauri|python) ;; *) motor=tauri ;; esac
+          echo "Motor de Mac: $motor"
+          echo "mac=$motor" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows
+    needs: verificar
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fijar la versión según la etiqueta
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python apps/teclado-tauri/tools/fijar_version.py "$GITHUB_REF_NAME"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: Compilar
+        run: cargo build --release --features custom-protocol --manifest-path apps/teclado-tauri/src-tauri/Cargo.toml
+      - name: Preparar el archivo
+        run: |
+          mkdir salida
+          cp apps/teclado-tauri/src-tauri/target/release/teclado-cientifico.exe salida/TecladoCientifico-Windows.exe
+      - name: Probar arranque (informativo)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "salida/TecladoCientifico-Windows.exe"
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 15
+          $log = Join-Path $env:APPDATA "TecladoCientifico/diagnostico.log"
+          if (Test-Path $log) { Get-Content $log }
+          $vivo = -not $p.HasExited
+          if ($vivo) { Stop-Process -Id $p.Id -Force }
+          if (-not $vivo) { Write-Host "El programa se cerró solo."; exit 1 }
+          if (-not (Test-Path $log) -or -not (Select-String -Path $log -Pattern "animaciones:" -Quiet)) {
+            Write-Host "La interfaz no llegó a cargar."; exit 1
+          }
+          Write-Host "Arranque correcto."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TecladoCientifico-Windows.exe
+          path: salida/TecladoCientifico-Windows.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux
+    needs: verificar
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev libssl-dev libayatana-appindicator3-dev \
+            libfuse2 patchelf file xvfb dbus-x11
+      - name: Fijar la versión según la etiqueta
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 apps/teclado-tauri/tools/fijar_version.py "$GITHUB_REF_NAME"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: Compilar (AppImage, lleva adentro todo lo que necesita)
+        working-directory: apps/teclado-tauri
+        env:
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: npx --yes @tauri-apps/cli@2 build --bundles appimage
+      - name: Preparar el archivo
+        run: |
+          imagen=$(find apps/teclado-tauri/src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1)
+          [ -n "$imagen" ] || { echo "No se generó el AppImage."; exit 1; }
+          mkdir salida
+          # El actualizador de la 1.x espera un .tar.gz con un archivo llamado TecladoCientifico.
+          cp "$imagen" salida/TecladoCientifico
+          chmod +x salida/TecladoCientifico
+      - name: Comprobar que el ejecutable tenga la versión de la etiqueta
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          esperada=$(python3 apps/teclado-tauri/tools/fijar_version.py --leer "$GITHUB_REF_NAME")
+          obtenida=$(salida/TecladoCientifico --appimage-extract-and-run --version | tail -n 1)
+          echo "Etiqueta: $esperada · ejecutable: $obtenida"
+          if [ "$esperada" != "$obtenida" ]; then
+            echo "La versión del ejecutable no coincide con la etiqueta: no se publica."
+            exit 1
+          fi
+      - name: Probar arranque (pantalla virtual)
+        run: ESPERA=15 apps/teclado-tauri/tools/probar_arranque.sh "$PWD/salida/TecladoCientifico" --appimage-extract-and-run
+      - name: Empaquetar
+        run: tar -czf TecladoCientifico-Linux.tar.gz -C salida TecladoCientifico
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TecladoCientifico-Linux.tar.gz
+          path: TecladoCientifico-Linux.tar.gz
+          if-no-files-found: error
+
+  mac-tauri:
+    name: Mac (Tauri)
+    needs: [verificar, decidir]
+    if: ${{ needs.decidir.outputs.mac == 'tauri' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fijar la versión según la etiqueta
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python apps/teclado-tauri/tools/fijar_version.py "$GITHUB_REF_NAME"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: Compilar (universal, para Apple Silicon e Intel)
+        working-directory: apps/teclado-tauri
+        run: npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app
+      - name: Empaquetar
+        run: |
+          app=$(find apps/teclado-tauri/src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' | head -n 1)
+          [ -n "$app" ] || { echo "No se generó la aplicación."; exit 1; }
+          echo "$app" > ruta_app.txt
+          mkdir salida
+          ditto -c -k --keepParent "$app" salida/TecladoCientifico-Mac.zip
+      - name: Probar arranque (informativo)
+        continue-on-error: true
+        run: |
+          app=$(cat ruta_app.txt)
+          binario=$(find "$app/Contents/MacOS" -type f | head -n 1)
+          "$binario" > /dev/null 2>&1 &
+          pid=$!
+          sleep 15
+          log="$HOME/Library/Application Support/TecladoCientifico/diagnostico.log"
+          [ -f "$log" ] && cat "$log"
+          kill "$pid" 2>/dev/null || true
+          grep -q "animaciones:" "$log" 2>/dev/null || { echo "La interfaz no llegó a cargar."; exit 1; }
+          echo "Arranque correcto."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TecladoCientifico-Mac.zip
+          path: salida/TecladoCientifico-Mac.zip
+          if-no-files-found: error
+
+  mac-python:
+    name: Mac (Python, motor anterior)
+    needs: [verificar, decidir]
+    if: ${{ needs.decidir.outputs.mac == 'python' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/teclado
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fijar la versión según la etiqueta
+        run: python fijar_version.py "$GITHUB_REF_NAME"
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller==6.22.3 pynput==1.8.2
+      - name: Compilar
+        run: |
+          pyinstaller --windowed --name TecladoCientifico --icon icono.icns --add-data "icono.png:." --collect-submodules pynput --hidden-import pynput.keyboard._darwin --hidden-import pynput.mouse._darwin --hidden-import pynput._util.darwin teclado_griego.py
+          ditto -c -k --keepParent dist/TecladoCientifico.app TecladoCientifico-Mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TecladoCientifico-Mac.zip
+          path: apps/teclado/TecladoCientifico-Mac.zip
+          if-no-files-found: error
+
+  publicar:
+    name: Publicar
+    needs: [windows, linux, mac-tauri, mac-python]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: salida
+          merge-multiple: true
+      - name: Comprobar que estén los tres archivos
+        run: |
+          # Si falta uno, la web y los actualizadores quedarían con un enlace roto: no se publica.
+          for f in TecladoCientifico-Windows.exe TecladoCientifico-Mac.zip TecladoCientifico-Linux.tar.gz; do
+            [ -f "salida/$f" ] || { echo "Falta $f: no se publica nada."; exit 1; }
+          done
+          ls -la salida
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: salida/*

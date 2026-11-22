@@ -9,7 +9,10 @@ Teclado Científico: teclado flotante de letras griegas y símbolos (Windows, ma
 - Al pasar el mouse sobre un símbolo, muestra su nombre en la barra superior.
 - Una fila de "usados recientemente" repite los últimos 9 símbolos escritos.
 - Modo compacto (botón ▴/▾): deja solo la barra y la fila de recientes.
-- Botón ⚙: configuración (color, tamaño de teclas, transparencia, nombres y más).
+- Botón ⚙: configuración (color, tamaño de teclas, transparencia, nombres, inicio
+  automático con el sistema y más). Los cambios se aplican sin parpadeos.
+- Animaciones suaves: destello al tocar una tecla, entrada escalonada al cambiar de pestaña y
+  barrido de izquierda a derecha al cambiar de color. Nunca bloquean el uso del teclado.
 - Atajo global (Ctrl+Alt+G por defecto, solo Windows y Linux con X11) para
   ocultar o mostrar el teclado. Se puede cambiar en el archivo de configuración.
 - El botón "–" lo minimiza a la barra de tareas, como una ventana común;
@@ -40,7 +43,7 @@ import urllib.request
 import webbrowser
 import zlib
 
-VERSION = "1.6"
+VERSION = "1.8.2"
 NOMBRE_APP = "TecladoCientifico"
 NOMBRE_APP_ANTERIOR = "TecladoGriego"  # nombre de la carpeta de configuración hasta la v1.3
 SISTEMA = sys.platform  # "win32", "darwin" o "linux"
@@ -458,6 +461,16 @@ C = dict(TEMAS[TEMA_PREDETERMINADO])  # colores en uso (los cambia Teclado.aplic
 TAMANOS = {"Pequeño": (10, 33, 24), "Normal": (12, 35, 28), "Grande": (14, 41, 33)}
 TAMANO_PREDETERMINADO = "Normal"
 ALPHA_PREDETERMINADA, ALPHA_MINIMA = 0.96, 0.60
+ALPHA_TOPE_WINDOWS = 0.999  # ver alpha_para_sistema
+
+
+def alpha_para_sistema(alpha, sistema=None):
+    """Transparencia que se entrega al sistema. En Windows, Tk quita y vuelve a poner el
+    «modo transparente» de la ventana al pasar por 100 %, y ese cambio puede verse como un
+    destello; con 99,9 % (idéntico a la vista) el modo queda siempre activo."""
+    if (sistema or SISTEMA) == "win32":
+        return min(alpha, ALPHA_TOPE_WINDOWS)
+    return alpha
 
 
 def ruta_recurso(nombre):
@@ -614,6 +627,74 @@ def forma_png(widget, ancho, alto, radio, relleno, contorno=None, grosor=0, semi
     return cache[clave]
 
 
+# ---------------------------------------------------------------------------
+# Animaciones (desde la versión 1.8)
+# ---------------------------------------------------------------------------
+# Tk no mezcla colores: cada paso de una animación es una imagen nueva. Por eso todo se hace en
+# pocos pasos fijos (la imagen de cada paso queda en caché) y con temporizadores: la interfaz no
+# se bloquea nunca y se puede seguir usando mientras corre. Al terminar, cada pieza se repinta
+# con su color definitivo, de modo que el resultado final es siempre el correcto.
+PASO_MS = 32
+PULSO = (1.0, 0.6, 0.3)           # destello al tocar una tecla
+APARICION = (0.3, 0.6, 0.85)      # entrada de las teclas al cambiar de pestaña
+RETARDO_COLUMNA_MS = 14           # cada columna entra un poco después que la anterior
+BARRIDO_MS = 340                  # duración del cambio de color
+BARRIDO_NIVELES = 4               # pasos de color por pieza (quedan 3 intermedios)
+BARRIDO_ANCHO = 0.5               # parte del ancho que abarca el frente del barrido a la vez
+ANIM = {"activo": False, "viejo": {}, "p": 0.0, "x0": 0, "ancho": 1}  # barrido en curso
+
+
+def animaciones_permitidas():
+    """Respeta el ajuste «mostrar animaciones» de Windows (accesibilidad)."""
+    if SISTEMA == "win32":
+        try:
+            import ctypes
+            activo = ctypes.c_int(1)
+            # SPI_GETCLIENTAREAANIMATION = 0x1042
+            if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(activo), 0):
+                return bool(activo.value)
+        except Exception:
+            pass
+    return True
+
+
+ANIMACIONES = animaciones_permitidas()
+
+
+def mezclar(a, b, t):
+    """Color entre a y b ('#rrggbb'): con t=0 da a y con t=1 da b."""
+    if t <= 0:
+        return a
+    if t >= 1:
+        return b
+    ra, rb = hex_a_rgb(a), hex_a_rgb(b)
+    return "#%02x%02x%02x" % tuple(round(ra[i] + (rb[i] - ra[i]) * t) for i in range(3))
+
+
+def nivel_barrido(widget):
+    """Avance del barrido (de 0 a 1, en pasos) en la posición horizontal del widget."""
+    if not ANIM["activo"]:
+        return 1.0
+    try:
+        centro = (widget.winfo_rootx() - ANIM["x0"] + widget.winfo_width() / 2) / ANIM["ancho"]
+    except tk.TclError:
+        centro = 0.5
+    f = (ANIM["p"] * (1 + BARRIDO_ANCHO) - min(max(centro, 0.0), 1.0)) / BARRIDO_ANCHO
+    return round(min(1.0, max(0.0, f)) * BARRIDO_NIVELES) / BARRIDO_NIVELES
+
+
+def cc(rol, widget=None):
+    """Color de un rol del tema. Con un barrido en curso, el que le toca a ese widget."""
+    nuevo = C[rol]
+    if widget is None or not ANIM["activo"]:
+        return nuevo
+    f = nivel_barrido(widget)
+    if f >= 1:
+        return nuevo
+    viejo = ANIM["viejo"].get(rol, nuevo)
+    return viejo if f <= 0 else mezclar(viejo, nuevo, f)
+
+
 class Tecla(tk.Canvas):
     """Tecla de bordes redondeados dibujada en un Canvas (liviana: 2 o 3 elementos).
 
@@ -632,6 +713,9 @@ class Tecla(tk.Canvas):
         self.hover_relleno, self.hover_color = hover_relleno, hover_color
         self.grosor = max(1, round(escala_de(self)))
         self.imagenes = []  # referencias: Tk descarta las imágenes que nadie conserva
+        self.f_aparicion, self.f_pulso = 1.0, 0.0  # 1 = visible del todo / 0 = sin destello
+        self._pasando = False
+        self._trabajos = {}
         self.forma = self.create_image(0, 0, anchor="nw")
         self.punto = None
         self.bind("<Button-1>", self._pulsar)
@@ -639,14 +723,63 @@ class Tecla(tk.Canvas):
         self.bind("<Leave>", self._salir)
         self.poner(simbolo)
 
-    def poner(self, simbolo):
+    def poner(self, simbolo, aparecer=None):
+        """Cambia el símbolo. Con `aparecer` (milisegundos de espera) entra con una animación."""
         self.simbolo = simbolo
         self.delete("t")
         self.punto = None
         self.configure(cursor="hand2" if simbolo else "arrow")
         if simbolo:
             self._dibujar(simbolo)
-        self.pintar()
+        if aparecer is not None and simbolo and ANIMACIONES:
+            self.f_aparicion = 0.0  # se oculta ya: el símbolo nuevo no aparece de golpe
+            self.pintar()
+            self._animar("aparicion", "f_aparicion", APARICION, 1.0, aparecer)
+        else:
+            self._cancelar("aparicion")
+            self.f_aparicion = 1.0
+            self.pintar()
+
+    # -- animaciones ---------------------------------------------------------
+    def _cancelar(self, clave):
+        trabajo = self._trabajos.pop(clave, None)
+        if trabajo is not None:
+            try:
+                self.after_cancel(trabajo)
+            except tk.TclError:
+                pass
+
+    def _animar(self, clave, atributo, valores, final, retardo=0):
+        """Lleva un atributo por una lista de valores y lo deja en `final`. Se puede volver a
+        pedir en cualquier momento (reinicia); nunca bloquea: cada paso es un temporizador."""
+        self._cancelar(clave)
+
+        def paso(i):
+            self._trabajos.pop(clave, None)
+            try:
+                if i < len(valores):
+                    setattr(self, atributo, valores[i])
+                    self.pintar()
+                    self._trabajos[clave] = self.after(PASO_MS, lambda: paso(i + 1))
+                else:
+                    setattr(self, atributo, final)
+                    self.pintar()
+            except tk.TclError:
+                pass  # la tecla ya no existe
+
+        if retardo > 0:
+            self._trabajos[clave] = self.after(retardo, lambda: paso(0))
+        else:
+            paso(0)
+
+    def destellar(self):
+        if self.simbolo and ANIMACIONES:
+            self._animar("pulso", "f_pulso", PULSO, 0.0)
+
+    def destroy(self):
+        for clave in list(self._trabajos):
+            self._cancelar(clave)
+        super().destroy()
 
     def _dibujar(self, simbolo):
         fuente = fuente_de(self, self.puntos, self.negrita)
@@ -672,20 +805,31 @@ class Tecla(tk.Canvas):
     def _imagen_forma(self, relleno, contorno):
         return forma_png(self, self.ancho, self.alto, self.radio, relleno, contorno, self.grosor)
 
-    def pintar(self, pasando=False):
+    def pintar(self, pasando=None):
+        if pasando is None:
+            pasando = self._pasando
         pasando = pasando and bool(self.simbolo)
         relleno = self.hover_relleno if pasando else self.relleno
-        color = C[self.hover_color if pasando else self.color]
-        rel = C[relleno] if relleno else None
-        self.configure(bg=C[self.fondo])
-        imagen = self._imagen_forma(rel, C[self.contorno])
+        fondo = cc(self.fondo, self)
+        rel = cc(relleno, self) if relleno else None
+        contorno = cc(self.contorno, self)
+        color = cc(self.hover_color if pasando else self.color, self)
+        if self.f_aparicion < 1:  # entrando: se pasa del fondo al aspecto final
+            rel = mezclar(fondo, rel, self.f_aparicion) if rel else None
+            contorno = mezclar(fondo, contorno, self.f_aparicion)
+            color = mezclar(fondo, color, self.f_aparicion)
+        if self.f_pulso and self.simbolo:  # destello de color al tocar
+            rel = mezclar(rel or fondo, cc("acento", self), 0.85 * self.f_pulso)
+            color = mezclar(color, cc("barra", self), self.f_pulso)
+        self.configure(bg=fondo)
+        imagen = self._imagen_forma(rel, contorno)
         if imagen is not None:
             self.imagenes = [imagen]
             self.itemconfigure(self.forma, image=imagen)
         else:  # respaldo: polígono redondeado sin suavizar
             self.delete(self.forma)
             self.forma = rectangulo_redondeado(self, 0, 0, self.ancho - 1, self.alto - 1,
-                                               self.radio, fill=rel or "", outline=C[self.contorno],
+                                               self.radio, fill=rel or "", outline=contorno,
                                                width=self.grosor)
             self.tag_lower(self.forma)
         self.itemconfigure("x", fill=color)
@@ -708,17 +852,20 @@ class Tecla(tk.Canvas):
 
     def _entrar(self, evento):
         if self.simbolo:
-            self.pintar(True)
+            self._pasando = True
+            self.pintar()
             if self.al_pasar:
                 self.al_pasar(True)
 
     def _salir(self, evento):
+        self._pasando = False
         self.pintar()
         if self.al_pasar and self.simbolo:
             self.al_pasar(False)
 
     def _pulsar(self, evento):
         if self.simbolo and self.comando:
+            self.destellar()  # primero el aviso visual, después se escribe
             self.comando()
 
 
@@ -744,12 +891,18 @@ class Interruptor(tk.Canvas):
         self.bind("<Button-1>", lambda e: self.comando())
         self.repintar()
 
+    def poner(self, valor):
+        """Cambia el estado sin crear nada nuevo (se redibuja solo la pieza que cambia)."""
+        if valor != self.valor:
+            self.valor = valor
+            self.repintar()
+
     def repintar(self):
-        self.configure(bg=C["fondo"])
+        self.configure(bg=cc("fondo", self))
         d = self.alto - 2 * self.margen
         x = self.ancho - self.margen - d if self.valor else self.margen
-        fondo = C["acento"] if self.valor else C["hover"]
-        perilla = C["fondo"] if self.valor else C["asa"]
+        fondo = cc("acento", self) if self.valor else cc("hover", self)
+        perilla = cc("fondo", self) if self.valor else cc("asa", self)
         if self.usa_png:
             pastilla = forma_png(self, self.ancho, self.alto, self.alto / 2, fondo)
             bola = forma_png(self, d, d, d / 2, perilla)
@@ -764,17 +917,246 @@ class Interruptor(tk.Canvas):
             self.itemconfigure(self.perilla, fill=perilla)
 
 
-def recolorear(widget):
-    """Aplica el tema actual a un widget y a todo lo que contiene."""
+class MuestraColor(tk.Canvas):
+    """Círculo de la configuración que muestra el color de acento de un tema.
+    El elegido lleva el borde más grueso. Se redibuja en el lugar (no se recrea)."""
+
+    def __init__(self, padre, tema, lado, hueco, finos, gruesos, elegido):
+        super().__init__(padre, width=lado + hueco, height=lado, bd=0,
+                         highlightthickness=0, bg=C["fondo"], cursor="hand2")
+        self.tema, self.lado, self.hueco = tema, lado, hueco
+        self.finos, self.gruesos, self.elegido = finos, gruesos, elegido
+        self.imagen = None  # referencia: Tk descarta las imágenes que nadie conserva
+        self.usa_png = forma_png(self, 4, 4, 1, "#000000") is not None
+        if self.usa_png:
+            self.elemento = self.create_image(hueco, 0, anchor="nw")
+        else:
+            self.elemento = self.create_oval(hueco, 1, lado + hueco - 1, lado - 1)
+        self.repintar()
+
+    def repintar(self):
+        self.configure(bg=cc("fondo", self))
+        grosor = self.gruesos if self.elegido else self.finos
+        borde = cc("texto", self) if self.elegido else cc("hover", self)
+        acento = TEMAS[self.tema]["acento"]
+        if self.usa_png:
+            self.imagen = forma_png(self, self.lado, self.lado, self.lado / 2, acento, borde, grosor)
+            self.itemconfigure(self.elemento, image=self.imagen)
+        else:
+            self.itemconfigure(self.elemento, fill=acento, width=grosor, outline=borde)
+
+
+def recolorear_uno(widget):
+    """Aplica el tema (o el paso del barrido que le toca) a un solo widget."""
     if hasattr(widget, "repintar"):
         widget.repintar()
     roles = getattr(widget, "_roles", None)
     if roles:
-        widget.configure(bg=C[roles["bg"]])
+        widget.configure(bg=cc(roles["bg"], widget))
         if roles.get("fg"):
-            widget.configure(fg=C[roles["fg"]])
+            widget.configure(fg=cc(roles["fg"], widget))
+
+
+def recolorear(widget):
+    """Aplica el tema actual a un widget y a todo lo que contiene."""
+    recolorear_uno(widget)
     for hijo in widget.winfo_children():
         recolorear(hijo)
+
+
+# ---------------------------------------------------------------------------
+# Inicio automático con el sistema (desde la versión 1.8)
+# ---------------------------------------------------------------------------
+# Solo funciona con el programa descargado (compilado): una copia que se ejecuta como script
+# no tiene una ruta estable para registrar. Siempre se usa el sistema propio de cada plataforma:
+#   Windows: valor en HKCU\Software\Microsoft\Windows\CurrentVersion\Run (el mismo que muestra
+#            «Aplicaciones de inicio» en Configuración y el Administrador de tareas).
+#   macOS:   agente de usuario en ~/Library/LaunchAgents.
+#   Linux:   archivo .desktop en ~/.config/autostart (estándar XDG).
+ARGUMENTO_INICIO = "--inicio"  # lo agrega el sistema; si ya hay otra copia abierta, sale sin avisar
+CLAVE_INICIO_WINDOWS = r"Software\Microsoft\Windows\CurrentVersion\Run"
+CLAVE_APROBADOS_WINDOWS = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+ETIQUETA_INICIO_MAC = "com.tecladocientifico.inicio"
+
+
+def _winreg():
+    import winreg  # solo existe en Windows
+    return winreg
+
+
+def _normal(ruta):
+    return os.path.normcase(os.path.normpath(ruta)) if ruta else ruta
+
+
+def _paquete_mac(ruta):
+    """Carpeta «.app» que contiene al ejecutable (None si no está dentro de un paquete)."""
+    actual = ruta
+    while True:
+        if actual.endswith(".app"):
+            return actual
+        padre = os.path.dirname(actual)
+        if padre == actual:
+            return None
+        actual = padre
+
+
+def archivo_inicio_automatico():
+    """Archivo que registra el inicio automático en macOS y Linux."""
+    if SISTEMA == "darwin":
+        return os.path.expanduser(f"~/Library/LaunchAgents/{ETIQUETA_INICIO_MAC}.plist")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "autostart", NOMBRE_APP + ".desktop")
+
+
+def contenido_inicio_mac(ruta):
+    """Datos del agente de macOS. Se abre con «open -a» para que arranque como una aplicación
+    normal (así conserva el permiso de Accesibilidad) y, si ya está abierta, no hace nada."""
+    import plistlib
+    paquete = _paquete_mac(ruta)
+    argumentos = (["/usr/bin/open", "-a", paquete, "--args", ARGUMENTO_INICIO] if paquete
+                  else [ruta, ARGUMENTO_INICIO])
+    return plistlib.dumps({"Label": ETIQUETA_INICIO_MAC, "ProgramArguments": argumentos,
+                           "RunAtLoad": True})
+
+
+def contenido_inicio_linux(ruta):
+    """Texto del .desktop, o None si la ruta tiene caracteres que complican el formato."""
+    if any(c in ruta for c in '"\\$`%\n\r'):
+        return None
+    return ("[Desktop Entry]\nType=Application\nName=Teclado Científico\n"
+            "Comment=Teclado flotante de letras griegas y símbolos\n"
+            f'Exec="{ruta}" {ARGUMENTO_INICIO}\nTerminal=false\n'
+            "X-GNOME-Autostart-enabled=true\n")
+
+
+def _ruta_de_comando_windows(valor):
+    valor = str(valor).strip()
+    if valor.startswith('"'):
+        fin = valor.find('"', 1)
+        return valor[1:fin] if fin > 0 else valor[1:]
+    return valor.split(" " + ARGUMENTO_INICIO)[0]
+
+
+def leer_inicio_automatico():
+    """None si no hay registro; si lo hay, {"ruta": ruta registrada, "habilitado": bool}.
+    «habilitado» es False si la persona lo desactivó desde el propio sistema."""
+    try:
+        if SISTEMA == "win32":
+            wr = _winreg()
+            try:
+                with wr.OpenKey(wr.HKEY_CURRENT_USER, CLAVE_INICIO_WINDOWS, 0, wr.KEY_READ) as k:
+                    valor, _ = wr.QueryValueEx(k, NOMBRE_APP)
+            except FileNotFoundError:
+                return None
+            habilitado = True
+            try:
+                with wr.OpenKey(wr.HKEY_CURRENT_USER, CLAVE_APROBADOS_WINDOWS, 0, wr.KEY_READ) as k:
+                    dato, _ = wr.QueryValueEx(k, NOMBRE_APP)
+                # Windows marca con un byte impar (03, 07) lo que se desactivó desde sus ajustes.
+                habilitado = not (len(dato) > 0 and dato[0] % 2 == 1)
+            except (FileNotFoundError, OSError):
+                pass
+            return {"ruta": _ruta_de_comando_windows(valor), "habilitado": habilitado}
+        archivo = archivo_inicio_automatico()
+        if not os.path.isfile(archivo):
+            return None
+        if SISTEMA == "darwin":
+            import plistlib
+            with open(archivo, "rb") as f:
+                datos = plistlib.load(f)
+            argumentos = datos.get("ProgramArguments") or []
+            ruta = (argumentos[2] if len(argumentos) > 2 and argumentos[0] == "/usr/bin/open"
+                    else (argumentos[0] if argumentos else None))
+            return {"ruta": ruta, "habilitado": True}
+        ruta, habilitado = None, True
+        with open(archivo, encoding="utf-8") as f:
+            for linea in f:
+                linea = linea.strip()
+                if linea.startswith("Exec="):
+                    ruta = _ruta_de_comando_windows(linea[5:])
+                elif linea.lower() in ("hidden=true", "x-gnome-autostart-enabled=false"):
+                    habilitado = False
+        return {"ruta": ruta, "habilitado": habilitado}
+    except Exception:
+        return None
+
+
+def _ruta_registrada_coincide(registro, ruta):
+    if SISTEMA == "darwin" and ruta:
+        ruta = _paquete_mac(ruta) or ruta
+    return bool(registro) and _normal(registro["ruta"]) == _normal(ruta)
+
+
+def inicio_automatico_activo():
+    """True si el sistema abrirá este programa al iniciar sesión."""
+    ruta = ruta_ejecutable()
+    registro = leer_inicio_automatico()
+    return bool(ruta and registro and registro["habilitado"]
+                and _ruta_registrada_coincide(registro, ruta))
+
+
+def activar_inicio_automatico():
+    """Registra el programa para que se abra al iniciar sesión. True si lo logró."""
+    ruta = ruta_ejecutable()
+    if not ruta:
+        return False
+    try:
+        if SISTEMA == "win32":
+            wr = _winreg()
+            with wr.CreateKey(wr.HKEY_CURRENT_USER, CLAVE_INICIO_WINDOWS) as k:
+                wr.SetValueEx(k, NOMBRE_APP, 0, wr.REG_SZ, f'"{ruta}" {ARGUMENTO_INICIO}')
+            try:  # si antes se lo desactivó desde el sistema, vuelve a quedar habilitado
+                with wr.OpenKey(wr.HKEY_CURRENT_USER, CLAVE_APROBADOS_WINDOWS, 0,
+                                wr.KEY_SET_VALUE) as k:
+                    wr.DeleteValue(k, NOMBRE_APP)
+            except (FileNotFoundError, OSError):
+                pass
+            return True
+        if SISTEMA == "darwin":
+            datos = contenido_inicio_mac(ruta)
+            modo = "wb"
+        else:
+            datos = contenido_inicio_linux(ruta)
+            if datos is None:
+                return False
+            modo = "w"
+        archivo = archivo_inicio_automatico()
+        os.makedirs(os.path.dirname(archivo), exist_ok=True)
+        with open(archivo, modo, **({} if modo == "wb" else {"encoding": "utf-8"})) as f:
+            f.write(datos)
+        return True
+    except Exception:
+        return False
+
+
+def desactivar_inicio_automatico():
+    """Quita el registro de inicio automático. True si ya no queda ninguno."""
+    try:
+        if SISTEMA == "win32":
+            wr = _winreg()
+            for clave in (CLAVE_INICIO_WINDOWS, CLAVE_APROBADOS_WINDOWS):
+                try:
+                    with wr.OpenKey(wr.HKEY_CURRENT_USER, clave, 0, wr.KEY_SET_VALUE) as k:
+                        wr.DeleteValue(k, NOMBRE_APP)
+                except (FileNotFoundError, OSError):
+                    pass
+            return leer_inicio_automatico() is None
+        try:
+            os.remove(archivo_inicio_automatico())
+        except FileNotFoundError:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def reparar_inicio_automatico():
+    """Si el programa se movió o se actualizó en otra carpeta, corrige la ruta registrada.
+    No hace nada si no hay registro o si la persona lo desactivó desde el sistema."""
+    ruta = ruta_ejecutable()
+    registro = leer_inicio_automatico()
+    if ruta and registro and registro["habilitado"] and not _ruta_registrada_coincide(registro, ruta):
+        activar_inicio_automatico()
 
 
 # ---------------------------------------------------------------------------
@@ -959,6 +1341,9 @@ def relanzar(ruta):
 class Teclado:
     def __init__(self):
         self.raiz = raiz = tk.Tk()
+        # La ventana se arma oculta y se muestra recién cuando está terminada (ver revelar):
+        # así no se ven los pasos intermedios ni el salto desde la posición inicial.
+        raiz.withdraw()
         raiz.title("Teclado Científico")
         self.poner_icono()
         raiz.overrideredirect(True)
@@ -979,7 +1364,18 @@ class Teclado:
         self.escala = escala_de(raiz)
         self.ancho_config = 0
         self.en_config = False
+        self.teclas = []  # las teclas de la cuadrícula se crean una vez y se reutilizan
+        self.tema_visible = self.tema
+        self.barrido_activo = False
+        self.barrido_pendiente = None
+        self._trabajo_barrido = None
+        self._t0_barrido = 0.0
         self.panel = None
+        self.fijo_config = None
+        self.interruptores = {}
+        self.muestras = {}
+        self.etiquetas_tamano = {}
+        self.etiqueta_alpha = None
         self.trabajo_busqueda = None
         self.fijar_alpha(self.alpha)
         raiz.configure(bg=C["fondo"])
@@ -1122,7 +1518,9 @@ class Teclado:
 
         raiz.protocol("WM_DELETE_WINDOW", self.cerrar)
         raiz.bind("<Map>", self.al_restaurar)
+        self.revelar()
         raiz.after(100, self.aplicar_foco)
+        raiz.after(3000, reparar_inicio_automatico)
         raiz.after(1500, self.mantener_arriba)
         avisos = avisos_de_entorno()
         if aviso_atajo:
@@ -1140,6 +1538,19 @@ class Teclado:
             self.limpiar_restos()
         if self.buscar_actualizaciones and ruta_ejecutable():
             raiz.after(4000, self.buscar_actualizacion)
+
+    def revelar(self):
+        """Muestra la ventana ya terminada. Primero se la deja invisible (transparencia 0) para
+        que se dibuje por completo y con el estilo definitivo, y recién después se hace visible."""
+        raiz = self.raiz
+        try:
+            raiz.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass  # sin transparencia: igual se muestra ya armada
+        raiz.deiconify()
+        raiz.update()
+        self.aplicar_foco()
+        self.fijar_alpha(self.alpha)
 
     # -- ícono ---------------------------------------------------------------
     def poner_icono(self):
@@ -1164,19 +1575,30 @@ class Teclado:
         return (puntos, round(ancho * self.escala), round(alto * self.escala),
                 max(3, round(4 * self.escala)))
 
-    def mostrar(self, pagina):
+    def mostrar(self, pagina, animar=False):
+        """Muestra una pestaña. Las teclas se crean una sola vez y se reutilizan: cambiar de
+        pestaña solo cambia el símbolo de cada una (no se destruye ni se crea nada, sin
+        parpadeo). Con `animar`, entran en cascada de izquierda a derecha."""
         self.mostrar_nombre(None)
-        for hijo in self.cuadricula.winfo_children():
-            hijo.destroy()
         puntos, ancho, alto, radio = self.medidas()
-        for i, caracter in enumerate(PAGINAS[pagina]):
-            tecla = Tecla(self.cuadricula, caracter, ancho, alto, puntos, radio=radio,
-                          comando=lambda c=caracter: self.escribir_caracter(c),
-                          al_pasar=lambda dentro, c=caracter:
-                          self.mostrar_nombre(NOMBRES.get(c) if dentro else None))
-            tecla.grid(row=i // COLUMNAS, column=i % COLUMNAS,
-                       padx=(0, 0 if i % COLUMNAS == COLUMNAS - 1 else self.px(3)),
-                       pady=(0, self.px(3)))
+        simbolos = PAGINAS[pagina]
+        mayor = max(len(p) for p in PAGINAS.values())
+        while len(self.teclas) < mayor:
+            tecla = Tecla(self.cuadricula, "", ancho, alto, puntos, radio=radio)
+            tecla.comando = lambda tc=tecla: self.escribir_caracter(tc.simbolo)
+            tecla.al_pasar = lambda dentro, tc=tecla: self.mostrar_nombre(
+                NOMBRES.get(tc.simbolo) if dentro else None)
+            self.teclas.append(tecla)
+        for i, tecla in enumerate(self.teclas):
+            if i < len(simbolos):
+                columna = i % COLUMNAS
+                tecla.poner(simbolos[i], aparecer=columna * RETARDO_COLUMNA_MS if animar else None)
+                tecla.grid(row=i // COLUMNAS, column=columna,
+                           padx=(0, 0 if columna == COLUMNAS - 1 else self.px(3)),
+                           pady=(0, self.px(3)))
+            else:
+                tecla.poner("")
+                tecla.grid_remove()
         self.pagina = pagina
         self.pintar_pestanas()
 
@@ -1185,15 +1607,15 @@ class Teclado:
         for nombre, etiqueta in self.pestanas.items():
             activa = nombre == self.pagina
             etiqueta._roles["fg"] = "acento" if activa else "texto"
-            etiqueta.configure(fg=C["acento"] if activa else C["texto"])
+            etiqueta.configure(fg=cc(etiqueta._roles["fg"], etiqueta))
             indicador = self.indicadores[nombre]
             indicador._roles["bg"] = "acento" if activa else "barra"
-            indicador.configure(bg=C[indicador._roles["bg"]])
+            indicador.configure(bg=cc(indicador._roles["bg"], indicador))
 
     def cambiar_pagina(self, pagina):
         if self.en_config:
             self.cerrar_config()
-        self.mostrar(pagina)
+        self.mostrar(pagina, animar=pagina != self.pagina)
         if self.compacto:
             self.alternar_compacto(False)  # elegir una pestaña expande el teclado
         else:
@@ -1253,15 +1675,18 @@ class Teclado:
             self.raiz.lift()
             self.raiz.after(80, self.aplicar_foco)
 
+    def medida_cuadricula(self):
+        """(ancho, alto) que ocupa la cuadrícula de la pestaña más grande, calculado con las
+        medidas de las teclas. No hace falta dibujar cada pestaña para medirla: hacerlo se veía
+        como un destello al cambiar el tamaño de las teclas."""
+        _, ancho_tecla, alto_tecla, _ = self.medidas()
+        hueco = self.px(3)
+        filas = max(-(-len(p) // COLUMNAS) for p in PAGINAS.values())
+        return (COLUMNAS * ancho_tecla + (COLUMNAS - 1) * hueco, filas * (alto_tecla + hueco))
+
     def fijar_tamano(self):
         """Todas las pestañas ocupan lo mismo que la más grande (sin saltos de alto)."""
-        ancho = alto = 0
-        self.cuadricula.grid_propagate(True)  # vuelve a medir (cambio de tamaño de teclas)
-        for nombre in PAGINAS:
-            self.mostrar(nombre)
-            self.raiz.update_idletasks()
-            ancho = max(ancho, self.cuadricula.winfo_reqwidth())
-            alto = max(alto, self.cuadricula.winfo_reqheight())
+        ancho, alto = self.medida_cuadricula()
         self.cuadricula.configure(width=ancho, height=alto)
         self.cuadricula.grid_propagate(False)
         self.aviso.configure(wraplength=max(ancho - 12, 100))
@@ -1296,9 +1721,11 @@ class Teclado:
             self.slots.append(casilla)
         self.refrescar_recientes()
 
-    def refrescar_recientes(self):
+    def refrescar_recientes(self, destacar=None):
+        """Actualiza la fila de recientes; la casilla `destacar` entra con una animación."""
         for i, casilla in enumerate(self.slots):
-            casilla.poner(self.recientes[i] if i < len(self.recientes) else "")
+            simbolo = self.recientes[i] if i < len(self.recientes) else ""
+            casilla.poner(simbolo, aparecer=0 if i == destacar else None)
 
     def registrar_reciente(self, caracter, reordenar=True):
         if caracter in self.recientes:
@@ -1307,7 +1734,7 @@ class Teclado:
             self.recientes.remove(caracter)
         self.recientes.insert(0, caracter)
         del self.recientes[MAX_RECIENTES:]
-        self.refrescar_recientes()
+        self.refrescar_recientes(destacar=0)
         self.guardar()
 
     # -- escritura y avisos --------------------------------------------------
@@ -1478,9 +1905,11 @@ class Teclado:
     def fijar_alpha(self, valor):
         self.alpha = round(min(1.0, max(ALPHA_MINIMA, valor)), 2)
         try:
-            self.raiz.attributes("-alpha", self.alpha)
+            self.raiz.attributes("-alpha", alpha_para_sistema(self.alpha))
         except tk.TclError:
             pass  # algunos sistemas no admiten transparencia
+        if self.etiqueta_alpha is not None:
+            self.etiqueta_alpha.configure(text=f"{round(self.alpha * 100)} %")
 
     def alternar_config(self):
         if self.en_config:
@@ -1516,12 +1945,16 @@ class Teclado:
         self.raiz.after_idle(self.reajustar)
 
     def construir_config(self):
-        """Arma el panel de configuración (se rehace al cambiar algo, para reflejarlo)."""
+        """Muestra el panel de configuración. Se arma una sola vez; los cambios posteriores
+        actualizan solo lo que cambia (recrear el panel entero producía parpadeos)."""
         if self.panel is not None:
-            self.panel.destroy()
+            self.fijo_config.configure(width=self.ancho_config)
+            self.sincronizar_config()
+            self.panel.pack(fill="x")
+            return
         panel = self.panel = tk.Frame(self.raiz, bg=C["fondo"])
         panel._roles = {"bg": "fondo"}
-        fijo = tk.Frame(panel, width=self.ancho_config, height=1, bg=C["fondo"])
+        fijo = self.fijo_config = tk.Frame(panel, width=self.ancho_config, height=1, bg=C["fondo"])
         fijo._roles = {"bg": "fondo"}
         fijo.pack()  # fija el ancho mínimo del panel
 
@@ -1553,21 +1986,11 @@ class Teclado:
 
         # Color: un círculo por tema (con el color de acento de ese tema)
         zona, _ = fila("Color")
-        for nombre, tema in TEMAS.items():
-            lado, hueco = self.px(18), self.px(4)
-            muestra = tk.Canvas(zona, width=lado + hueco, height=lado, bd=0,
-                                highlightthickness=0, bg=C["fondo"], cursor="hand2")
-            elegido = nombre == self.tema
-            grosor = self.px(2) if elegido else self.px(1)
-            borde = C["texto"] if elegido else C["hover"]
-            imagen = forma_png(muestra, lado, lado, lado / 2, tema["acento"], borde, grosor)
-            if imagen is not None:
-                muestra.imagen = imagen  # referencia para que Tk no la descarte
-                muestra.create_image(hueco, 0, anchor="nw", image=imagen)
-            else:
-                muestra.create_oval(hueco, 1, lado + hueco - 1, lado - 1, fill=tema["acento"],
-                                    width=grosor, outline=borde)
-            muestra.bind("<Button-1>", lambda e, n=nombre: self.aplicar_tema(n))
+        for nombre in TEMAS:
+            muestra = MuestraColor(zona, nombre, self.px(18), self.px(4), self.px(1), self.px(2),
+                                   nombre == self.tema)
+            self.muestras[nombre] = muestra
+            muestra.bind("<Button-1>", lambda e, n=nombre: self.aplicar_tema(n, animar=True))
             muestra.bind("<Enter>", lambda e, n=nombre: self.mostrar_nombre(n, siempre=True))
             muestra.bind("<Leave>", lambda e: self.mostrar_nombre(None))
             muestra.pack(side="left")
@@ -1576,20 +1999,27 @@ class Teclado:
         for i, nombre in enumerate(TAMANOS):
             if i:
                 texto(zona, " · ")
-            texto(zona, nombre, color="acento" if nombre == self.tamano else "asa",
-                  comando=lambda n=nombre: self.cambiar_tamano(n))
+            self.etiquetas_tamano[nombre] = texto(
+                zona, nombre, color="acento" if nombre == self.tamano else "asa",
+                comando=lambda n=nombre: self.cambiar_tamano(n))
 
         zona, _ = fila("Transparencia")
         texto(zona, "−", color="texto", comando=lambda: self.cambiar_alpha(-0.05), padx=6)
-        texto(zona, f"{round(self.alpha * 100)} %")
+        self.etiqueta_alpha = texto(zona, f"{round(self.alpha * 100)} %")
+        self.etiqueta_alpha.configure(width=5)  # ancho fijo: «−» y «+» no se mueven al cambiar
         texto(zona, "+", color="texto", comando=lambda: self.cambiar_alpha(0.05), padx=6)
 
-        for titulo, valor, comando in (
-                ("Mostrar nombres", self.nombres, self.alternar_nombres),
-                ("Siempre encima", self.siempre_arriba, self.alternar_arriba),
-                ("Buscar actualizaciones", self.buscar_actualizaciones, self.alternar_busqueda)):
+        for clave, titulo, valor, comando in (
+                ("nombres", "Mostrar nombres", self.nombres, self.alternar_nombres),
+                ("arriba", "Siempre encima", self.siempre_arriba, self.alternar_arriba),
+                ("busqueda", "Buscar actualizaciones", self.buscar_actualizaciones,
+                 self.alternar_busqueda),
+                ("inicio", "Abrir al iniciar el sistema", inicio_automatico_activo(),
+                 self.alternar_inicio)):
             zona, _ = fila(titulo)
-            Interruptor(zona, valor, comando, self.px(26), self.px(14), self.px(2)).pack()
+            interruptor = Interruptor(zona, valor, comando, self.px(26), self.px(14), self.px(2))
+            interruptor.pack()
+            self.interruptores[clave] = interruptor
 
         zona, _ = fila("Atajo")
         texto(zona, texto_atajo(*self.atajo) if self.atajo else "Desactivado")
@@ -1601,18 +2031,123 @@ class Teclado:
             pieza.bind("<Button-1>", lambda e: self.restablecer())
         panel.pack(fill="x")
 
-    def aplicar_tema(self, nombre):
+    def poner_interruptor(self, clave, valor):
+        """Actualiza un interruptor del panel, si el panel ya fue creado."""
+        if clave in self.interruptores:
+            self.interruptores[clave].poner(valor)
+
+    def sincronizar_config(self):
+        """Refleja en el panel (ya creado) el estado actual, cambiando solo lo necesario."""
+        if self.panel is None:
+            return
+        for nombre, muestra in self.muestras.items():
+            elegido = nombre == self.tema
+            if muestra.elegido != elegido:
+                muestra.elegido = elegido
+                muestra.repintar()
+        for nombre, etiqueta in self.etiquetas_tamano.items():
+            etiqueta._roles["fg"] = "acento" if nombre == self.tamano else "asa"
+            etiqueta.configure(fg=C[etiqueta._roles["fg"]])
+        self.etiqueta_alpha.configure(text=f"{round(self.alpha * 100)} %")
+        for clave, valor in (("nombres", self.nombres), ("arriba", self.siempre_arriba),
+                             ("busqueda", self.buscar_actualizaciones),
+                             ("inicio", inicio_automatico_activo())):
+            self.poner_interruptor(clave, valor)
+
+    def aplicar_tema(self, nombre, animar=False):
+        """Cambia el color. Solo se recolorea lo que ya existe (no se crea ni se destruye nada).
+        Con `animar` el cambio es un barrido de izquierda a derecha; sin animar, es inmediato."""
         if nombre not in TEMAS:
             return
-        self.tema = nombre
+        self.tema = nombre  # el estado queda definitivo ya, aunque el barrido tarde unos instantes
+        self.sincronizar_config()
+        self.guardar()
+        if animar and ANIMACIONES:
+            if self.barrido_activo:
+                self.barrido_pendiente = nombre  # el que corre termina; después se hace este
+            else:
+                self.iniciar_barrido(nombre)
+            return
+        self.barrido_pendiente = None
+        self.terminar_barrido()
+        self.poner_colores(nombre)
+
+    def poner_colores(self, nombre):
         C.update(TEMAS[nombre])
+        self.tema_visible = nombre
         self.raiz.configure(bg=C["fondo"])
         recolorear(self.raiz)
-        self.mostrar(self.pagina)
-        self.refrescar_recientes()
-        if self.en_config:
-            self.construir_config()
-        self.guardar()
+
+    # -- barrido de color ----------------------------------------------------
+    # Las piezas cambian de color según su posición: un frente que avanza de izquierda a
+    # derecha. Es un temporizador, no un bucle: el teclado se sigue usando mientras corre, y
+    # tocar una tecla, pasar el mouse o cambiar de pestaña usan los colores que corresponden a
+    # ese instante. Si se pide otro color a mitad de camino, el barrido en curso termina y
+    # después se hace el último pedido. Al final todo se repinta con el color definitivo.
+    def iniciar_barrido(self, nombre):
+        if nombre == self.tema_visible:
+            return
+        raiz = self.raiz
+        raiz.update_idletasks()
+        self.barrido_activo = True
+        ANIM.update(activo=True, viejo=dict(C), p=0.0, x0=raiz.winfo_rootx(),
+                    ancho=max(1, raiz.winfo_width()))
+        C.update(TEMAS[nombre])
+        self.tema_visible = nombre
+        self._reiniciar_niveles(raiz)
+        self._t0_barrido = time.monotonic()
+        self.paso_barrido()
+
+    def _reiniciar_niveles(self, widget):
+        widget._nivel_barrido = 0.0
+        for hijo in widget.winfo_children():
+            self._reiniciar_niveles(hijo)
+
+    def _repintar_barrido(self, widget):
+        nivel = nivel_barrido(widget)
+        if getattr(widget, "_nivel_barrido", None) != nivel:
+            widget._nivel_barrido = nivel
+            recolorear_uno(widget)
+        for hijo in widget.winfo_children():
+            self._repintar_barrido(hijo)
+
+    def paso_barrido(self):
+        self._trabajo_barrido = None
+        if not self.barrido_activo:
+            return
+        try:
+            t = (time.monotonic() - self._t0_barrido) * 1000 / BARRIDO_MS
+            if t >= 1:
+                self.terminar_barrido()
+                return
+            ANIM["p"] = t * t * (3 - 2 * t)
+            self.raiz.configure(bg=cc("fondo", self.raiz))
+            self._repintar_barrido(self.raiz)
+            self._trabajo_barrido = self.raiz.after(PASO_MS, self.paso_barrido)
+        except tk.TclError:
+            self.barrido_activo = False
+            ANIM["activo"] = False
+
+    def terminar_barrido(self):
+        """Completa el barrido en curso (si hay) y deja todo con el color definitivo."""
+        if self._trabajo_barrido is not None:
+            try:
+                self.raiz.after_cancel(self._trabajo_barrido)
+            except tk.TclError:
+                pass
+            self._trabajo_barrido = None
+        if not self.barrido_activo:
+            return
+        self.barrido_activo = False
+        ANIM["activo"] = False
+        try:
+            self.raiz.configure(bg=C["fondo"])
+            recolorear(self.raiz)
+        except tk.TclError:
+            return
+        pendiente, self.barrido_pendiente = self.barrido_pendiente, None
+        if pendiente and pendiente != self.tema_visible:
+            self.iniciar_barrido(pendiente)
 
     def cambiar_tamano(self, nombre):
         if nombre not in TAMANOS:
@@ -1621,28 +2156,28 @@ class Teclado:
         self.crear_recientes()
         pagina = self.pagina
         self.fijar_tamano()
+        for tecla in self.teclas:
+            tecla.destroy()
+        self.teclas = []
         self.mostrar(pagina)
-        if self.en_config:
-            self.construir_config()
+        self.sincronizar_config()
         self.raiz.after_idle(self.reajustar)
         self.guardar()
 
     def cambiar_alpha(self, paso):
-        self.fijar_alpha(self.alpha + paso)
-        if self.en_config:
-            self.construir_config()
+        self.fijar_alpha(self.alpha + paso)  # también actualiza el número del panel
         self.guardar()
 
     def alternar_nombres(self):
         self.nombres = not self.nombres
-        self.construir_config()
+        self.poner_interruptor("nombres", self.nombres)
         self.guardar()
 
     def alternar_arriba(self):
         self.siempre_arriba = not self.siempre_arriba
         self.raiz.attributes("-topmost", self.siempre_arriba)
         self.aplicar_foco()
-        self.construir_config()
+        self.poner_interruptor("arriba", self.siempre_arriba)
         self.guardar()
 
     def alternar_busqueda(self):
@@ -1653,8 +2188,24 @@ class Teclado:
         elif self.trabajo_busqueda is not None:
             self.raiz.after_cancel(self.trabajo_busqueda)
             self.trabajo_busqueda = None
-        self.construir_config()
+        self.poner_interruptor("busqueda", self.buscar_actualizaciones)
         self.guardar()
+
+    def alternar_inicio(self):
+        """Activa o desactiva la apertura automática al iniciar sesión (programa descargado)."""
+        if not ruta_ejecutable():
+            self.avisar_en_config("Solo en el programa descargado")
+            return
+        activo = inicio_automatico_activo()
+        correcto = desactivar_inicio_automatico() if activo else activar_inicio_automatico()
+        self.poner_interruptor("inicio", inicio_automatico_activo())
+        if not correcto:
+            self.avisar_en_config("No se pudo cambiar")
+
+    def avisar_en_config(self, texto):
+        """Mensaje breve en la barra de la configuración (se borra solo)."""
+        self.mostrar_nombre(texto, siempre=True)
+        self.raiz.after(4000, lambda: self.mostrar_nombre(None))
 
     def restablecer(self):
         self.nombres = True
@@ -1732,7 +2283,8 @@ def main():
             liberar_instancia()
             time.sleep(0.5)
         else:
-            avisar_ya_abierto()
+            if ARGUMENTO_INICIO not in sys.argv[1:]:  # al iniciar el sistema no se molesta
+                avisar_ya_abierto()
             return
     Teclado().ejecutar()
 

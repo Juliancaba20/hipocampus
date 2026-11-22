@@ -3,10 +3,11 @@ name: Compilar Teclado Científico
 on:
   push:
     tags:
-      - "teclado-v*"
-      - "Teclado-v*"
-      - "Teclado-científico-v*"
-      - "Teclado-cientifico-v*"
+      # Solo la versión 1 (Python). Las 2.x (Tauri) las compila «Compilar Teclado Científico 2».
+      - "teclado-v1.*"
+      - "Teclado-v1.*"
+      - "Teclado-científico-v1.*"
+      - "Teclado-cientifico-v1.*"
   workflow_dispatch:
 
 permissions:
@@ -36,6 +37,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Fijar la versión según la etiqueta
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # El programa compara su versión (VERSION) con la de los releases para avisar de
+          # actualizaciones. Si VERSION no coincide con la etiqueta, se actualiza pero sigue
+          # avisando para siempre. Por eso el número se toma de la etiqueta y no de la memoria de nadie.
+          python fijar_version.py "$GITHUB_REF_NAME"
+
       - name: Instalar Tk y pantalla virtual en Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
@@ -64,6 +73,17 @@ jobs:
           # Los módulos de pynput para X11 se cargan dinámicamente y, al compilar sin
           # pantalla, PyInstaller no los detecta: sin esto el programa no podría escribir.
           pyinstaller --onefile --noconsole --name TecladoCientifico --add-data "icono.png:." --collect-submodules pynput --hidden-import pynput.keyboard._xorg --hidden-import pynput.mouse._xorg --hidden-import pynput._util.xorg --collect-submodules Xlib teclado_griego.py
+
+      - name: Comprobar que el ejecutable tenga la versión de la etiqueta (Linux)
+        if: runner.os == 'Linux' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          esperada=$(python fijar_version.py --leer "$GITHUB_REF_NAME")
+          obtenida=$(xvfb-run -a dist/TecladoCientifico --version)
+          echo "Etiqueta: $esperada · ejecutable: $obtenida"
+          if [ "$esperada" != "$obtenida" ]; then
+            echo "La versión del ejecutable no coincide con la etiqueta: no se publica."
+            exit 1
+          fi
 
       - name: Probar arranque (Linux, pantalla virtual)
         if: runner.os == 'Linux'

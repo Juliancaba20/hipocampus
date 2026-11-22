@@ -1,0 +1,65 @@
+# Prueba del Teclado Científico en Tauri (versión 2.0, en evaluación).
+# Se ejecuta a mano: Actions > «Probar Teclado (Tauri)» > Run workflow.
+# Al terminar, el .exe de Windows queda como «artefacto» descargable al final de la ejecución.
+# No publica ninguna versión ni toca la del teclado de Python (etiquetas teclado-v*).
+name: Probar Teclado (Tauri)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Pruebas (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev librsvg2-dev libxdo-dev libssl-dev python3-tk xvfb
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: Pruebas de la interfaz
+        run: node --test apps/teclado-tauri/ui/pruebas/*.test.js
+      - name: Los datos coinciden con el teclado de Python
+        run: |
+          cd apps/teclado-tauri
+          xvfb-run -a python tools/generar_datos.py
+          git diff --exit-code -- ui/datos.js
+      - name: Pruebas de Rust
+        run: cargo test --manifest-path apps/teclado-tauri/src-tauri/Cargo.toml
+
+  windows:
+    name: Compilar para Windows
+    needs: verificar
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/teclado-tauri/src-tauri
+      - name: Compilar
+        run: cargo build --release --features custom-protocol --manifest-path apps/teclado-tauri/src-tauri/Cargo.toml
+      - name: Preparar el archivo
+        shell: bash
+        run: |
+          mkdir salida
+          cp apps/teclado-tauri/src-tauri/target/release/teclado-cientifico.exe salida/TecladoCientifico-2.0-prueba.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TecladoCientifico-Windows-prueba
+          path: salida/TecladoCientifico-2.0-prueba.exe
+          if-no-files-found: error
