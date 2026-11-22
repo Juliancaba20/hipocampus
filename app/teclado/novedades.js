@@ -26,40 +26,40 @@ export const NOTAS_TECLADO = [
   // cierre «},») para que aparezcan en la web junto con la nueva descarga. No las active antes: la
   // página mostraría notas de una versión que todavía no se puede descargar.
   //
-  // {
-  //   version: '2.0',
-  //   fecha: 'Noviembre de 2026',
-  //   titulo: 'Un teclado nuevo, más fluido y con mejor aspecto',
-  //   resumen: 'El teclado se rehizo con otra tecnología: abre más rápido, se ve más nítido y prolijo, y tiene animaciones suaves. Mantiene los mismos símbolos y su configuración.',
-  //   secciones: [
-  //     {
-  //       titulo: 'Novedades',
-  //       items: [
-  //         'Diseño nuevo: bordes redondeados con sombra, íconos nítidos y una transparencia que afecta solo al fondo, de modo que las letras se ven siempre claras.',
-  //         'Animaciones suaves: un destello y un pequeño rebote al tocar una tecla, entrada escalonada al cambiar de pestaña, símbolos recientes que se deslizan y un barrido de color de izquierda a derecha al cambiar de tema.',
-  //         'Las animaciones no bloquean el uso: se puede seguir escribiendo mientras corren y siempre terminan bien.',
-  //         'Ícono junto al reloj (barra de tareas en Windows y Linux, barra de menús en Mac): el botón «–» oculta el teclado y un clic en el ícono lo vuelve a mostrar. También con Ctrl+Alt+G.',
-  //         'Ya no aparece en Alt+Tab ni en la barra de tareas, así que no se interpone al cambiar entre sus documentos.',
-  //       ],
-  //     },
-  //     {
-  //       titulo: 'Mejoras',
-  //       items: [
-  //         'Puede quedar pegado a cualquier borde de la pantalla, incluido el superior. Si se arrastra con una parte afuera, vuelve solo adentro.',
-  //         'Mantiene los mismos símbolos, colores y tamaños, y conserva su posición, color y símbolos recientes al pasar desde la versión anterior.',
-  //         'Si ya tenía activado «Abrir al iniciar el sistema», sigue activado.',
-  //       ],
-  //     },
-  //     {
-  //       titulo: 'Para tener en cuenta',
-  //       items: [
-  //         'En Windows necesita WebView2, que ya viene con Windows 11 y con Windows 10 actualizado.',
-  //         'En Mac es una versión en prueba: puede pedir el permiso de Accesibilidad la primera vez.',
-  //         'En Linux se distribuye como un solo archivo (AppImage): si no abre, ejecútelo con --appimage-extract-and-run.',
-  //       ],
-  //     },
-  //   ],
-  // },
+  {
+     version: '2.0',
+     fecha: 'Noviembre de 2026',
+     titulo: 'Un teclado nuevo, más fluido y con mejor aspecto',
+     resumen: 'El teclado se rehizo con otra tecnología: abre más rápido, se ve más nítido y prolijo, y tiene animaciones suaves. Mantiene los mismos símbolos y su configuración.',
+     secciones: [
+       {
+         titulo: 'Novedades',
+         items: [
+           'Diseño nuevo: bordes redondeados con sombra, íconos nítidos y una transparencia que afecta solo al fondo, de modo que las letras se ven siempre claras.',
+           'Animaciones suaves: un destello y un pequeño rebote al tocar una tecla, entrada escalonada al cambiar de pestaña, símbolos recientes que se deslizan y un barrido de color de izquierda a derecha al cambiar de tema.',
+           'Las animaciones no bloquean el uso: se puede seguir escribiendo mientras corren y siempre terminan bien.',
+           'Ícono junto al reloj (barra de tareas en Windows y Linux, barra de menús en Mac): el botón «–» oculta el teclado y un clic en el ícono lo vuelve a mostrar. También con Ctrl+Alt+G.',
+           'Ya no aparece en Alt+Tab ni en la barra de tareas, así que no se interpone al cambiar entre sus documentos.',
+         ],
+       },
+       {
+         titulo: 'Mejoras',
+         items: [
+           'Puede quedar pegado a cualquier borde de la pantalla, incluido el superior. Si se arrastra con una parte afuera, vuelve solo adentro.',
+           'Mantiene los mismos símbolos, colores y tamaños, y conserva su posición, color y símbolos recientes al pasar desde la versión anterior.',
+           'Si ya tenía activado «Abrir al iniciar el sistema», sigue activado.',
+         ],
+       },
+       {
+         titulo: 'Para tener en cuenta',
+         items: [
+           'En Windows necesita WebView2, que ya viene con Windows 11 y con Windows 10 actualizado.',
+           'En Mac es una versión en prueba: puede pedir el permiso de Accesibilidad la primera vez.',
+           'En Linux se distribuye como un solo archivo (AppImage): si no abre, ejecútelo con --appimage-extract-and-run.',
+         ],
+       },
+     ],
+   },
   {
     version: '1.8.2',
     fecha: 'Noviembre de 2026',
