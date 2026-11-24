@@ -171,7 +171,9 @@ jobs:
             exit 1
           fi
       - name: Probar arranque (pantalla virtual)
-        run: ESPERA=15 apps/teclado-tauri/tools/probar_arranque.sh "$PWD/salida/TecladoCientifico" --appimage-extract-and-run
+        # Se llama con «bash» y no directamente: al subir los archivos desde la web o desde Windows se
+        # pierde el permiso de ejecución del script y daría «Permission denied».
+        run: ESPERA=15 bash apps/teclado-tauri/tools/probar_arranque.sh "$PWD/salida/TecladoCientifico" --appimage-extract-and-run
       - name: Empaquetar
         run: tar -czf TecladoCientifico-Linux.tar.gz -C salida TecladoCientifico
       - uses: actions/upload-artifact@v4
