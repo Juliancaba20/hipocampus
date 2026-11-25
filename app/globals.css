@@ -70,12 +70,20 @@ h1{font-size:clamp(2.5rem,7vw,5.5rem);line-height:1;letter-spacing:-.035em;margi
 .card:hover{transform:translateY(-3px);box-shadow:var(--sh2)}
 .card h3{font-size:1.35rem;margin:0}.card .q{margin:.5rem 0 .75rem}
 .tools{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));padding:2.5rem 0}
-.tool{display:block;color:inherit;text-decoration:none;padding:clamp(1.5rem,3vw,2.5rem);animation:rise .6s var(--ease) both;animation-delay:calc(var(--i,0)*120ms + .25s)}
-.tool[data-tool="metodos"]{--c:#6d28d9}.tool[data-tool="teclado"]{--c:#b8351f}.tool[data-tool="notas"]{--c:#1d4ed8}.tool[data-tool="promedio"]{--c:#15803d}
-.tool .ico{display:grid;place-items:center;width:3.25rem;height:3.25rem;border-radius:16px;background:var(--c);color:#fff;font:800 1.6rem var(--hd);margin-bottom:1rem;transition:transform .3s var(--ease)}
+.tool{position:relative;overflow:hidden;display:block;color:#fff;text-decoration:none;padding:clamp(1.5rem,3vw,2.5rem);border:1px solid rgba(255,255,255,.16);border-top-width:1px;background:var(--fondo-tarjeta);box-shadow:0 2px 4px rgba(var(--shc),.18),0 14px 30px rgba(var(--shc),.28);animation:rise .6s var(--ease) both;animation-delay:calc(var(--i,0)*120ms + .25s)}
+/* Cada tarjeta de la portada lleva el degradado de su sección (el mismo del encabezado de su subpágina) */
+.tool[data-tool="metodos"]{--c:#6d28d9;--shc:109,40,217;--fondo-tarjeta:linear-gradient(135deg,#4c1d95,#6d28d9 55%,#7c3aed)}
+.tool[data-tool="teclado"]{--c:#b8351f;--shc:184,53,31;--fondo-tarjeta:linear-gradient(135deg,#8f2617,#b8351f 55%,#c63d2a)}
+.tool[data-tool="notas"]{--c:#1d4ed8;--shc:29,78,216;--fondo-tarjeta:linear-gradient(135deg,#1e3a8a,#1d4ed8 55%,#2563eb)}
+.tool[data-tool="promedio"]{--c:#15803d;--shc:21,128,61;--fondo-tarjeta:linear-gradient(135deg,#14532d,#15803d 55%,#1a8f47)}
+.tool:hover{box-shadow:0 2px 4px rgba(var(--shc),.22),0 18px 36px rgba(var(--shc),.38)}
+.tool::before{content:"";position:absolute;width:15rem;height:15rem;right:-5rem;top:-7rem;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.22),transparent 68%);pointer-events:none}
+.tool>*{position:relative}
+.tool .ico{display:grid;place-items:center;width:3.25rem;height:3.25rem;border-radius:16px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.28);color:#fff;font:800 1.6rem var(--hd);margin-bottom:1rem;transition:transform .3s var(--ease)}
 .tool:hover .ico{transform:rotate(-8deg) scale(1.08)}
-.tool h2{margin:0 0 .5rem;font-size:clamp(1.6rem,2.4vw,2.2rem)}.tool p{margin:0 0 1.25rem;max-width:38rem}
+.tool h2{margin:0 0 .5rem;font-size:clamp(1.6rem,2.4vw,2.2rem);color:#fff}.tool p{margin:0 0 1.25rem;max-width:38rem;color:rgba(255,255,255,.94)}
 .go{font:700 .98rem var(--hd);color:var(--c)}.go::after{content:" \2192";display:inline-block;transition:transform .25s var(--ease)}
+.tool .go{color:#fff}
 .tool:hover .go::after{transform:translateX(6px)}.page{padding-bottom:3rem}
 
 /* ---- Botones ---- */
